@@ -50,23 +50,41 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
-      # Version signee : uniquement si le certificat est fourni dans les secrets
+      # Version signee : uniquement si un certificat est fourni.
+      # `secrets` ne s'utilise pas dans `if`, on passe donc par une sortie d'etape.
+      - name: Verifier la presence du certificat
+        id: cert
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Preparer le certificat
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/tocloud.jks
+        if: steps.cert.outputs.present == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > android/app/tocloud.jks
 
       - name: Compiler l'APK signe
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: steps.cert.outputs.present == 'true'
+        working-directory: android
+        env:
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           ./gradlew assembleRelease --no-daemon \
-            -Pandroid.injected.signing.store.file=$PWD/app/tocloud.jks \
-            -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" \
-            -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}" \
-            -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}"
-        working-directory: android
+            -Pandroid.injected.signing.store.file="$PWD/app/tocloud.jks" \
+            -Pandroid.injected.signing.store.password="$STORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
       - name: Publier l'APK signe
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: steps.cert.outputs.present == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: to-cloud-release
