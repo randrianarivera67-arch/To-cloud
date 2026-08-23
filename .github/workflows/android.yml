@@ -31,8 +31,21 @@ jobs:
       - name: Construire le site
         run: npm run build
         env:
-          # doit pointer vers le Worker, sinon l'APK ne trouve pas l'API
+          # Ces trois valeurs sont figees dans le bundle au moment du build.
+          # Si l'une manque, l'APK affiche l'ecran « Configuration incomplete »
+          # ou echoue avec « Failed to fetch ».
           VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Verifier que le bundle est configure
+        run: |
+          if grep -rq "supabase.co" dist/assets/*.js; then
+            echo "Configuration presente dans le bundle."
+          else
+            echo "::error::Les variables VITE_SUPABASE_* sont absentes du build."
+            exit 1
+          fi
 
       - name: Preparer le projet Android
         run: |
