@@ -189,6 +189,14 @@ async function fileUrls(env, request, id) {
   return json(env, { name: file.name, size: file.size, cat: file.cat, parts });
 }
 
+/**
+ * Renvoie les octets d'un morceau.
+ *
+ * Une redirection 302 vers api.telegram.org serait moins couteuse, mais
+ * Telegram n'envoie aucun en-tete CORS : le navigateur refuse alors la
+ * reponse. Le Worker doit donc relayer le flux. Il le fait en streaming, sans
+ * rien garder en memoire.
+ */
 async function download(env, request, id, idx) {
   const token = new URL(request.url).searchParams.get("t");
   if (!await checkChunk(env, id, Number(idx), token)) return fail(env, "Lien expire", 403);
@@ -202,7 +210,17 @@ async function download(env, request, id, idx) {
   if (!chunk) return fail(env, "Morceau introuvable", 404);
 
   const url = await chunkUrl(env, chunk.f, chunk.b);
-  return Response.redirect(url, 302);
+  const upstream = await fetch(url);
+  if (!upstream.ok) return fail(env, "Morceau indisponible sur le canal", 502);
+
+  return new Response(upstream.body, {
+    headers: {
+      "content-type": "application/octet-stream",
+      "content-length": String(chunk.s),
+      "cache-control": "private, max-age=600",
+      ...cors(env),
+    },
+  });
 }
 
 async function remove(env, request, id) {

@@ -98,6 +98,19 @@ export async function upload(file, cat, onProgress) {
   });
 }
 
+const MIME = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
+  webp: "image/webp", bmp: "image/bmp", svg: "image/svg+xml", heic: "image/heic",
+  mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", mkv: "video/x-matroska",
+  "3gp": "video/3gpp", m4v: "video/mp4", avi: "video/x-msvideo",
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4",
+  flac: "audio/flac", aac: "audio/aac", opus: "audio/opus",
+  pdf: "application/pdf", txt: "text/plain", csv: "text/csv",
+  zip: "application/zip", apk: "application/vnd.android.package-archive",
+};
+
+const mimeOf = name => MIME[(name.split(".").pop() || "").toLowerCase()] || "application/octet-stream";
+
 /**
  * Telechargement : recupere chaque morceau puis les recolle en un seul Blob.
  *
@@ -120,7 +133,7 @@ export async function download(id, onProgress) {
     });
   }
 
-  return { blob: new Blob(blobs), name: meta.name, cat: meta.cat };
+  return { blob: new Blob(blobs, { type: mimeOf(meta.name) }), name: meta.name, cat: meta.cat };
 }
 
 /** Assemble puis declenche l'enregistrement. */

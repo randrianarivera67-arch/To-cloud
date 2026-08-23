@@ -59,6 +59,17 @@ const STR = {
     empty: "Cette catégorie est vide", emptySub: "Touchez le bouton d'envoi pour commencer.",
     uploading: "Envoi en cours", uploaded: "Envoi terminé", saved: "Enregistré",
     speed: "Débit", nodes: "Nœuds actifs", freeSpace: "libre",
+    soon: "Bientôt disponible",
+    trashSoon: "La suppression est définitive pour l'instant. La corbeille arrivera avec la sauvegarde du registre.",
+    cleanSoon: "Le nettoyage des doublons et des fragments interrompus demande un inventaire côté serveur, pas encore écrit.",
+    multiSoon: "Un seul compte à la fois pour l'instant. Déconnectez-vous pour en utiliser un autre.",
+    activeAccount: "Compte actif",
+    prefs: "Préférences", about: "À propos",
+    wifiOnly: "Wi-Fi uniquement", wifiOnlySub: "Avertir avant un envoi volumineux en données mobiles",
+    notif: "Notifications", notifSub: "Prévenir à la fin de chaque envoi",
+    storedOn: "Vos fichiers", storedOnSub: "Découpés en parties de 18 Mo et stockés sur un canal privé",
+    prefsNote: "Ces préférences sont gardées sur cet appareil uniquement.",
+    holdToSelect: "Maintenez appuyé pour sélectionner",
     loading: "Chargement…", loadFailed: "Impossible d'ouvrir ce fichier",
     retry: "Réessayer", uploadFailed: "Échec de l'envoi", emptyShort: "Vide",
     chooseCat: "Où l'envoyer ?", chooseCatSub: "Le fichier sera rangé dans cette catégorie.",
@@ -80,6 +91,17 @@ const STR = {
     empty: "Mbola foana ity sokajy ity", emptySub: "Tsindrio ny bokotra fandefasana.",
     uploading: "Alefa ankehitriny", uploaded: "Vita ny fandefasana", saved: "Voatahiry",
     speed: "Hafainganana", nodes: "Node mavitrika", freeSpace: "malalaka",
+    soon: "Ho avy tsy ho ela",
+    trashSoon: "Tsy azo averina ny famafana amin'izao. Ho avy miaraka amin'ny backup ny daba fanariana.",
+    cleanSoon: "Mila fanisana any amin'ny serveur ny fanadiovana, mbola tsy vita.",
+    multiSoon: "Kaonty iray ihany aloha. Mivoaha raha hampiasa hafa.",
+    activeAccount: "Kaonty mandeha",
+    prefs: "Safidy", about: "Momba",
+    wifiOnly: "Wi-Fi ihany", wifiOnlySub: "Mampitandrina alohan'ny fandefasana lehibe amin'ny data",
+    notif: "Fampandrenesana", notifSub: "Mampahafantatra rehefa vita ny fandefasana",
+    storedOn: "Ny rakitrao", storedOnSub: "Zaraina 18 Mo dia tehirizina ao amin'ny canal manokana",
+    prefsNote: "Ao amin'ity finday ity ihany no itehirizana ireo safidy ireo.",
+    holdToSelect: "Tazomy mba hifidy",
     loading: "Miandry…", loadFailed: "Tsy afaka nanokatra ity rakitra ity",
     retry: "Andramo indray", uploadFailed: "Tsy tafita ny fandefasana", emptyShort: "Foana",
     chooseCat: "Alefa aiza?", chooseCatSub: "Ho tehirizina ao amin'ity sokajy ity ny rakitra.",
@@ -101,6 +123,17 @@ const STR = {
     empty: "This category is empty", emptySub: "Tap the upload button to start.",
     uploading: "Uploading", uploaded: "Upload complete", saved: "Stored",
     speed: "Throughput", nodes: "Active nodes", freeSpace: "free",
+    soon: "Coming soon",
+    trashSoon: "Deletion is permanent for now. Trash arrives with registry backups.",
+    cleanSoon: "Cleanup needs a server-side inventory that isn't written yet.",
+    multiSoon: "One account at a time for now. Sign out to use another.",
+    activeAccount: "Active account",
+    prefs: "Preferences", about: "About",
+    wifiOnly: "Wi-Fi only", wifiOnlySub: "Warn before a large upload on mobile data",
+    notif: "Notifications", notifSub: "Tell me when an upload finishes",
+    storedOn: "Your files", storedOnSub: "Split into 18 MB parts, stored on a private channel",
+    prefsNote: "These preferences stay on this device only.",
+    holdToSelect: "Press and hold to select",
     loading: "Loading…", loadFailed: "Could not open this file",
     retry: "Try again", uploadFailed: "Upload failed", emptyShort: "Empty",
     chooseCat: "Where to?", chooseCatSub: "The file will be filed under this category.",
@@ -806,46 +839,40 @@ const LanguageView = ({ onBack, lang, setLang, t }) => (
 
 /* ─────────── settings ─────────── */
 function SettingsView({ onBack, go, lang, t }) {
-  const [s, setS] = useState({ smart: true, hidden: false, wifi: true, notif: true, turbo: true });
-  const tg = k => setS(v => ({ ...v, [k]: !v[k] }));
+  const [prefs, setPrefs] = useState(() => load("tc_prefs", { wifi: false, notif: true }));
+  const flip = k => setPrefs(v => {
+    const next = { ...v, [k]: !v[k] };
+    save("tc_prefs", next);
+    return next;
+  });
   const cur = LANGS.find(l => l.code === lang);
 
   return (
     <div className="pb-10">
       <TopBar title={t.settings} onBack={onBack} />
+
       <Section>
         <Row Icon={Languages} title={t.language} sub={cur?.native}
              right={<ChevronRight size={20} color={T.faint} />} onClick={() => go("language")} />
       </Section>
-      <Section label="Performance">
-        <Row Icon={Zap} title="Mode turbo" sub="6 nœuds parallèles au lieu de 2 — envoi jusqu'à 3× plus rapide"
-             right={<Switch on={s.turbo} onToggle={() => tg("turbo")} />} />
+
+      <Section label={t.prefs}>
+        <Row Icon={Wifi} title={t.wifiOnly} sub={t.wifiOnlySub}
+             right={<Switch on={prefs.wifi} onToggle={() => flip("wifi")} />} />
         <Divider />
-        <Row Icon={Wifi} title="Wi-Fi uniquement" sub="Les gros envois n'utilisent pas les données mobiles"
-             right={<Switch on={s.wifi} onToggle={() => tg("wifi")} />} />
-        <Divider />
-        <Row Icon={Bell} title="Notifications" sub="Prévenir à la fin de chaque envoi"
-             right={<Switch on={s.notif} onToggle={() => tg("notif")} />} />
+        <Row Icon={Bell} title={t.notif} sub={t.notifSub}
+             right={<Switch on={prefs.notif} onToggle={() => flip("notif")} />} />
       </Section>
-      <Section label="Recherche">
-        <Row Icon={Trash2} title="Effacer l'historique" sub="Supprime les recherches de cet appareil" />
+
+      <Section label={t.about}>
+        <Row Icon={Info} title="To-cloud" sub="Version 1.0.0" />
         <Divider />
-        <Row Icon={Search} title="Recherche intelligente" sub="Analyse les noms de fichiers sur l'appareil"
-             right={<Switch on={s.smart} onToggle={() => tg("smart")} />} />
+        <Row Icon={ShieldCheck} title={t.storedOn} sub={t.storedOnSub} />
       </Section>
-      <Section label="Affichage">
-        <Row Icon={Eye} title="Afficher les fichiers masqués"
-             right={<Switch on={s.hidden} onToggle={() => tg("hidden")} />} />
-        <Divider />
-        <Row Icon={Lock} title="Dossier sécurisé" sub="Protégé par code"
-             right={<ChevronRight size={20} color={T.faint} />} />
-      </Section>
-      <Section label="Système">
-        <Row Icon={ShieldCheck} title="Sécurité et confidentialité"
-             right={<ChevronRight size={20} color={T.faint} />} />
-        <Divider />
-        <Row Icon={Info} title="À propos de To-cloud" sub="Version 1.0.0" />
-      </Section>
+
+      <p style={{ color: T.faint }} className="text-xs px-6 pt-2 leading-relaxed">
+        {t.prefsNote}
+      </p>
     </div>
   );
 }
@@ -854,35 +881,22 @@ function SettingsView({ onBack, go, lang, t }) {
 const CleanView = ({ onBack, t }) => (
   <div className="pb-10">
     <TopBar title={t.clean} onBack={onBack} />
-    <Panel accent={T.gold} className="mx-3 p-6 mb-3">
-      <Tile c={T.gold} bg={T.goldBg} Icon={Sparkles} size={62} icon={30} />
-      <h2 style={{ color: T.text, fontFamily: DISPLAY }} className="text-3xl font-bold mt-4 mb-1">8,2 Go</h2>
-      <p style={{ color: T.mute }} className="text-base leading-snug">
-        Doublons, images volumineuses inutilisées et fragments d'envois interrompus.
-      </p>
+    <Panel className="mx-3 p-8 text-center">
+      <Sparkles size={38} color={T.faint} strokeWidth={1.6} className="mx-auto mb-4" />
+      <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.soon}</p>
+      <p style={{ color: T.mute }} className="text-sm leading-snug">{t.cleanSoon}</p>
     </Panel>
-    <Section>
-      <Row Icon={Image} title="Doublons" sub="4,1 Go · 218 fichiers"
-           right={<span style={{ color: T.violet, fontFamily: DISPLAY }} className="text-sm font-bold uppercase">Nettoyer</span>} />
-      <Divider />
-      <Row Icon={CircleAlert} title="Fragments interrompus" sub="3,0 Go · 62 parties"
-           right={<span style={{ color: T.violet, fontFamily: DISPLAY }} className="text-sm font-bold uppercase">Nettoyer</span>} />
-      <Divider />
-      <Row Icon={Package} title="Applications installées" sub="1,1 Go · 6 fichiers"
-           right={<span style={{ color: T.violet, fontFamily: DISPLAY }} className="text-sm font-bold uppercase">Nettoyer</span>} />
-    </Section>
   </div>
 );
 
 const TrashView = ({ onBack, t }) => (
   <div className="pb-10">
     <TopBar title={t.trash} onBack={onBack} />
-    <p style={{ color: T.faint }} className="text-sm px-6 pb-4">Suppression définitive au bout de 30 jours.</p>
-    <Section>
-      <Row Icon={Image} title="ancien_logo.png" sub="1,2 Mo · 4 jours restants" />
-      <Divider />
-      <Row Icon={FileText} title="brouillon_contrat.docx" sub="340 Ko · 18 jours restants" />
-    </Section>
+    <Panel className="mx-3 p-8 text-center">
+      <Trash2 size={38} color={T.faint} strokeWidth={1.6} className="mx-auto mb-4" />
+      <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.soon}</p>
+      <p style={{ color: T.mute }} className="text-sm leading-snug">{t.trashSoon}</p>
+    </Panel>
   </div>
 );
 
@@ -890,13 +904,14 @@ const AddAccountView = ({ onBack, user, t }) => (
   <div className="pb-10">
     <TopBar title={t.addAccount} onBack={onBack} />
     <Section>
-      <Row Icon={User} title={user?.email} sub="Compte actif" right={<Check size={20} color={T.violet} />} />
-      <Divider />
-      <Row Icon={UserPlus} title="Connecter un nouveau compte" right={<ChevronRight size={20} color={T.faint} />} />
+      <Row Icon={User} title={user?.email} sub={t.activeAccount}
+           right={<Check size={20} color={T.violet} />} />
     </Section>
-    <p style={{ color: T.faint }} className="text-sm px-6 pt-4 leading-snug">
-      Chaque compte dispose de 100 Go gratuits. Le basculement est immédiat.
-    </p>
+    <Panel className="mx-3 p-6 text-center mt-3">
+      <UserPlus size={34} color={T.faint} strokeWidth={1.6} className="mx-auto mb-3" />
+      <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.soon}</p>
+      <p style={{ color: T.mute }} className="text-sm leading-snug">{t.multiSoon}</p>
+    </Panel>
   </div>
 );
 
@@ -928,6 +943,19 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
   const mode = sel.length > 0;
   const all = sel.length === items.length && items.length > 0;
   const toggle = id => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+
+  /* appui long : entre en selection sans ouvrir le fichier */
+  const holdRef = useRef(null);
+  const firedRef = useRef(false);
+  const holdStart = id => {
+    firedRef.current = false;
+    holdRef.current = setTimeout(() => {
+      firedRef.current = true;
+      navigator.vibrate?.(18);
+      setSel(s => (s.includes(id) ? s : [...s, id]));
+    }, 420);
+  };
+  const holdEnd = () => clearTimeout(holdRef.current);
   const label = GLABEL[lang] || GLABEL.fr;
 
   const totalSize = items.reduce((n, f) => n + f.size, 0);
@@ -990,6 +1018,9 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
             <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
               {items.length} {t.files}{items.length ? ` · ${humanSize(totalSize)}` : ""}
             </p>
+            {items.length > 0 && (
+              <p style={{ color: T.faint }} className="text-xs mt-1">{t.holdToSelect}</p>
+            )}
           </div>
         </div>
       )}
@@ -1040,7 +1071,17 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
                      style={{ borderTop: i ? `1px solid ${T.line}` : "none",
                               background: on ? cat.bg : "transparent" }}
                      className="flex items-center">
-                  <button onClick={() => mode ? toggle(f.id) : onOpen(f)}
+                  <button
+                    onClick={() => {
+                      if (firedRef.current) { firedRef.current = false; return; }
+                      mode ? toggle(f.id) : onOpen(f);
+                    }}
+                    onPointerDown={() => holdStart(f.id)}
+                    onPointerUp={holdEnd}
+                    onPointerLeave={holdEnd}
+                    onPointerCancel={holdEnd}
+                    onContextMenu={e => e.preventDefault()}
+                    style={{ touchAction: "manipulation" }}
                     className="flex items-center gap-4 pl-4 py-3.5 flex-1 min-w-0 text-left active:opacity-60">
                     <span className="relative shrink-0">
                       <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={46} icon={22} />
