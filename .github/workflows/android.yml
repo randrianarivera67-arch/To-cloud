@@ -1,0 +1,74 @@
+name: Build Android APK
+
+# Se declenche a la main, ou sur un tag v*
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Installer les dependances
+        run: npm install
+
+      - name: Construire le site
+        run: npm run build
+        env:
+          # doit pointer vers le Worker, sinon l'APK ne trouve pas l'API
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+
+      - name: Preparer le projet Android
+        run: |
+          npx cap add android || npx cap sync android
+          npx cap sync android
+
+      - name: Compiler l'APK de debogage
+        run: ./gradlew assembleDebug --no-daemon
+        working-directory: android
+
+      - name: Publier l'APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: to-cloud-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      # Version signee : uniquement si le certificat est fourni dans les secrets
+      - name: Preparer le certificat
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/tocloud.jks
+
+      - name: Compiler l'APK signe
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file=$PWD/app/tocloud.jks \
+            -Pandroid.injected.signing.store.password="${{ secrets.KEYSTORE_PASSWORD }}" \
+            -Pandroid.injected.signing.key.alias="${{ secrets.KEY_ALIAS }}" \
+            -Pandroid.injected.signing.key.password="${{ secrets.KEY_PASSWORD }}"
+        working-directory: android
+
+      - name: Publier l'APK signe
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: to-cloud-release
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
