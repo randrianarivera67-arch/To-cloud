@@ -13,11 +13,12 @@ import { load, save } from "./lib/storage.js";
 import { supabase, profile, CONFIGURED, MISSING } from "./lib/api.js";
 import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
-  upload, downloadToDisk, removeFile, objectUrl, logout,
+  upload, download, downloadToDisk, removeFile, objectUrl, logout, categorize,
   listTrash, restoreFile, purgeFile, emptyTrash,
   addFolder, dropFolder, moveFile, shareFile,
 } from "./lib/api.js";
 import AudioPlayer from "./AudioPlayer.jsx";
+import DocViewer from "./DocViewer.jsx";
 import { UploadProvider, UploadStatus, useUploads } from "./UploadQueue.jsx";
 
 /* ─────────── tokens ─────────── */
@@ -528,21 +529,23 @@ const Backdrop = () => (
 /* ─────────── media viewer ─────────── */
 function Viewer({ file, cat, siblings = [], onNavigate, onClose, t }) {
   const [src, setSrc] = useState(null);
+  const [blob, setBlob] = useState(null);
   const [load, setLoad] = useState(0);
   const [err, setErr] = useState(null);
-  const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
   const urlRef = useRef(null);
 
   useEffect(() => {
     if (!file) return;
     let dead = false;
-    setSrc(null); setLoad(0); setErr(null); setPage(1); setZoom(1);
+    setSrc(null); setBlob(null); setLoad(0); setErr(null); setZoom(1);
 
-    objectUrl(file.id, p => { if (!dead) setLoad(p.done); })
-      .then(u => {
-        if (dead) { URL.revokeObjectURL(u); return; }
+    download(file.id, p => { if (!dead) setLoad(p.done); })
+      .then(({ blob: b }) => {
+        if (dead) return;
+        const u = URL.createObjectURL(b);
         urlRef.current = u;
+        setBlob(b);
         setSrc(u);
       })
       .catch(e => { if (!dead) setErr(e.message); });
@@ -720,29 +723,7 @@ function Viewer({ file, cat, siblings = [], onNavigate, onClose, t }) {
   }
 
   if (k === "doc") {
-    const pdf = /\.pdf$/i.test(file.name);
-    return (
-      <Chrome>
-        <div className="flex-1 px-3 pb-3 overflow-hidden">
-          {pdf ? (
-            <iframe src={src} title={file.name}
-                    className="w-full h-full rounded-2xl"
-                    style={{ background: T.card, border: `1px solid ${T.line}` }} />
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center px-8">
-              <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={76} icon={36} />
-              <p style={{ color: T.text }} className="text-base font-semibold mt-5 mb-1">{t.noPreview}</p>
-              <p style={{ color: T.mute }} className="text-sm leading-snug mb-7">{t.noPreviewSub}</p>
-              <button onClick={() => downloadToDisk(file.id)} style={{ background: T.violet }}
-                      className="flex items-center gap-2.5 px-7 py-3.5 rounded-full active:opacity-80">
-                <Download size={20} color="#FFFFFF" />
-                <span className="text-base font-semibold text-white">{t.download}</span>
-              </button>
-            </div>
-          )}
-        </div>
-      </Chrome>
-    );
+    return <DocViewer file={file} blob={blob} t={t} onClose={onClose} />;
   }
 
   return (
@@ -914,7 +895,12 @@ function UploadPicker({ open, cat, folder, strict = true, t, onClose }) {
     const ok = strict ? list.filter(f => matchesCat(f, cat.key)) : list;
     const refused = list.length - ok.length;
 
-    ok.forEach(f => enqueue(f, cat, folder));
+    /* Hors categorie imposee, le classement vient de l'extension : sans cela
+       tout ce qui entre dans un dossier finirait dans « Autres ». */
+    ok.forEach(f => {
+      const key = strict ? cat.key : categorize(f.name);
+      enqueue(f, CATS.find(c => c.key === key) || cat, folder);
+    });
     onClose();
 
     if (refused > 0) {
