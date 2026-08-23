@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { isNative, saveNative, shareSaved } from "./native.js";
 
 const WORKER_URL = import.meta.env.VITE_API_URL;
 
@@ -305,25 +306,38 @@ const MIME = {
 };
 const mimeOf = n => MIME[(n.split(".").pop() || "").toLowerCase()] || "application/octet-stream";
 
-export async function download(id, onProgress) {
+/** Liste ordonnee des morceaux d'un fichier, avec ses metadonnees. */
+async function fileParts(id) {
   const { data: meta, error } = await supabase
     .from("files").select("name, size, cat").eq("id", id).single();
   if (error) throw new Error(error.message);
 
   const { data: chunks, error: cErr } = await supabase
-    .from("chunks").select("idx, tg_file_id, bot, size").eq("file_id", id).order("idx");
+    .from("chunks").select("idx, size").eq("file_id", id).order("idx");
   if (cErr) throw new Error(cErr.message);
   if (!chunks.length) throw new Error("Aucun morceau pour ce fichier");
 
-  const t = await token();
+  return { meta, chunks };
+}
+
+async function fetchChunk(id, idx, jwt) {
+  const res = await fetch(`${WORKER}/api/dl/${id}/${idx}`, {
+    headers: { authorization: `Bearer ${jwt}` },
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.error || `Morceau ${idx} indisponible`);
+  }
+  return res.blob();
+}
+
+export async function download(id, onProgress) {
+  const { meta, chunks } = await fileParts(id);
+  const jwt = await token();
   const blobs = [];
 
   for (const c of chunks) {
-    const res = await fetch(`${WORKER}/api/dl/${id}/${c.idx}`, {
-      headers: { authorization: `Bearer ${t}` },
-    });
-    if (!res.ok) throw new Error(`Morceau ${c.idx} indisponible`);
-    blobs.push(await res.blob());
+    blobs.push(await fetchChunk(id, c.idx, jwt));
     onProgress?.({
       done: blobs.length, total: chunks.length,
       percent: Math.round(blobs.length / chunks.length * 100),
@@ -333,12 +347,49 @@ export async function download(id, onProgress) {
   return { blob: new Blob(blobs, { type: mimeOf(meta.name) }), name: meta.name, cat: meta.cat };
 }
 
+/**
+ * Enregistre le fichier sur l'appareil.
+ *
+ * Deux chemins : dans l'APK, on ecrit morceau par morceau via le systeme de
+ * fichiers natif — un lien `download` n'y declenche rien. Sur le web, l'ancre
+ * doit etre inseree dans la page : detachee, Chrome sur Android ignore le clic.
+ */
 export async function downloadToDisk(id, onProgress) {
-  const { blob, name } = await download(id, onProgress);
-  const url = URL.createObjectURL(blob);
+  const { meta, chunks } = await fileParts(id);
+  const jwt = await token();
+
+  if (isNative()) {
+    const { uri } = await saveNative(
+      meta.name,
+      i => fetchChunk(id, chunks[i].idx, jwt),
+      chunks.length,
+      onProgress
+    );
+    await shareSaved(uri, meta.name);
+    return { saved: true, uri };
+  }
+
+  const blobs = [];
+  for (const c of chunks) {
+    blobs.push(await fetchChunk(id, c.idx, jwt));
+    onProgress?.({
+      done: blobs.length, total: chunks.length,
+      percent: Math.round(blobs.length / chunks.length * 100),
+    });
+  }
+
+  const url = URL.createObjectURL(new Blob(blobs, { type: mimeOf(meta.name) }));
   const a = document.createElement("a");
-  a.href = url; a.download = name; a.click();
+  a.href = url;
+  a.download = meta.name;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return { saved: true };
 }
 
 export async function objectUrl(id, onProgress) {

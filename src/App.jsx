@@ -11,6 +11,7 @@ import Auth from "./Auth.jsx";
 import InstallBanner from "./InstallBanner.jsx";
 import { load, save } from "./lib/storage.js";
 import { supabase, profile, CONFIGURED, MISSING } from "./lib/api.js";
+import { onHardwareBack } from "./lib/native.js";
 import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
   upload, download, downloadToDisk, removeFile, objectUrl, logout, categorize,
@@ -2135,27 +2136,34 @@ export default function ToCloud() {
   const layersRef = useRef(layers);
   layersRef.current = layers;
 
+  /** Ferme l'ecran du dessus. Renvoie false s'il n'y a plus rien a fermer. */
+  const goBack = () => {
+    const L = layersRef.current;
+    if (L.viewing) { setViewing(null); return true; }
+    if (L.audio) { setAudio(null); return true; }
+    if (L.account) { setAccount(false); return true; }
+    if (L.drawer) { setDrawer(false); return true; }
+    if (L.view === "folder") { setFolder(null); setView("folders"); return true; }
+    if (L.view === "language") { setView("settings"); return true; }
+    if (L.view !== "home") { setView("home"); setCat(null); setFolder(null); return true; }
+    return false;
+  };
+
   useEffect(() => {
     window.history.pushState({ tc: true }, "");
-
     const onPop = () => {
-      const L = layersRef.current;
-      let handled = true;
-
-      if (L.viewing) setViewing(null);
-      else if (L.audio) setAudio(null);
-      else if (L.account) setAccount(false);
-      else if (L.drawer) setDrawer(false);
-      else if (L.view === "folder") { setFolder(null); setView("folders"); }
-      else if (L.view === "language") setView("settings");
-      else if (L.view !== "home") { setView("home"); setCat(null); setFolder(null); }
-      else handled = false;   // deja a l'accueil : on laisse sortir
-
-      if (handled) window.history.pushState({ tc: true }, "");
+      if (goBack()) window.history.pushState({ tc: true }, "");
     };
-
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  /* Dans l'APK, Capacitor intercepte le bouton retour avant que `popstate` ne
+     puisse se declencher : il faut s'y brancher directement. */
+  useEffect(() => {
+    let off = () => {};
+    onHardwareBack(() => goBack()).then(fn => { off = fn; });
+    return () => off();
   }, []);
 
 
