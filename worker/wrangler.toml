@@ -11,5 +11,5 @@ keep_vars = true
 #   SUPABASE_SERVICE_KEY   Supabase → Settings → API → service_role
 
 [vars]
-SUPABASE_URL = "https://VOTRE-PROJET.supabase.co"
+SUPABASE_URL = "https://drbznjjwqhibvnnbkkul.supabase.co"
 ALLOWED_ORIGIN = "https://to-cloud.pages.dev"
