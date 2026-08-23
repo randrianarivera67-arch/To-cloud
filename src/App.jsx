@@ -10,6 +10,7 @@ import {
 import Auth from "./Auth.jsx";
 import InstallBanner from "./InstallBanner.jsx";
 import { load, save } from "./lib/storage.js";
+import { supabase, profile } from "./lib/api.js";
 import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
   upload, downloadToDisk, removeFile, objectUrl, logout,
@@ -1230,6 +1231,536 @@ function FoldersView({ onBack, onOpenFolder, onOpenCat, t }) {
   );
 }
 
+/* ─────────── search bar ─────────── */
+const SearchBar = ({ value, onChange, accent = T.violet, autoFocus, t }) => (
+  <div className="flex items-center gap-3 px-5 py-3.5 rounded-full"
+       style={{ background: T.card, border: `1.5px solid ${value ? accent : T.line}`,
+                boxShadow: value ? `0 0 0 3px ${accent}1F` : "none",
+                transition: "border-color 160ms, box-shadow 160ms" }}>
+    <Search size={20} color={value ? accent : T.mute} className="shrink-0" />
+    <input value={value} onChange={e => onChange(e.target.value)} autoFocus={autoFocus}
+           placeholder={t.search} inputMode="search"
+           className="flex-1 min-w-0 bg-transparent outline-none text-base"
+           style={{ color: T.text }} />
+    {value && (
+      <button onClick={() => onChange("")} aria-label="Effacer" className="shrink-0 p-1">
+        <X size={17} color={T.mute} />
+      </button>
+    )}
+  </div>
+);
+
+/* ─────────── help ─────────── */
+const HelpView = ({ onBack, t }) => (
+  <div className="pb-10">
+    <TopBar title={t.help} onBack={onBack} />
+
+    <Panel accent={T.blue} className="mx-3 p-6 mb-3">
+      <Tile c={T.blue} bg={T.blueBg} Icon={Cloud} size={58} icon={28} />
+      <h2 style={{ color: T.text }} className="text-lg font-semibold mt-4 mb-1.5">{t.needSpace}</h2>
+      <p style={{ color: T.mute }} className="text-sm leading-snug mb-5">{t.needSpaceSub}</p>
+      <a href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("To-cloud — demande d'espace")}`}
+         style={{ background: T.blue }}
+         className="flex items-center justify-center gap-2.5 py-3.5 rounded-full active:opacity-80">
+        <Mail size={19} color="#FFFFFF" />
+        <span className="text-base font-semibold text-white">{SUPPORT_EMAIL}</span>
+      </a>
+    </Panel>
+
+    <Section label={t.faq}>
+      <Row Icon={Upload} title={t.q1} sub={t.a1} />
+      <Divider />
+      <Row Icon={Eye} title={t.q2} sub={t.a2} />
+      <Divider />
+      <Row Icon={Trash2} title={t.q3} sub={t.a3} />
+    </Section>
+  </div>
+);
+
+/* ─────────── account ─────────── */
+const AddAccountView = ({ onBack, user, t }) => (
+  <div className="pb-10">
+    <TopBar title={t.addAccount} onBack={onBack} />
+    <Section>
+      <Row Icon={User} title={user?.email} sub={t.activeAccount}
+           right={<Check size={20} color={T.violet} />} />
+    </Section>
+    <Panel className="mx-3 p-6 text-center mt-3">
+      <UserPlus size={34} color={T.faint} strokeWidth={1.6} className="mx-auto mb-3" />
+      <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.soon}</p>
+      <p style={{ color: T.mute }} className="text-sm leading-snug">{t.multiSoon}</p>
+    </Panel>
+  </div>
+);
+
+/* ─────────── category ─────────── */
+function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
+  const [sel, setSel] = useState([]);
+  const [menu, setMenu] = useState(null);
+  const [moving, setMoving] = useState(null);
+  const [bulk, setBulk] = useState(false);
+  const [up, setUp] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState("recent");
+
+  const isGallery = cat.key === "sary";
+  const { files: raw, meta, loading, more, done, error, refresh, loadMore } =
+    useFiles(cat.key, { thumbs: isGallery, limit: isGallery ? 18 : 12 });
+
+  const items = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const out = raw.filter(f => !needle || f.name.toLowerCase().includes(needle));
+    if (sort === "name") out.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === "size") out.sort((a, b) => b.size - a.size);
+    return out;
+  }, [raw, q, sort]);
+
+  /* la page suivante n'est demandee qu'au moment ou la sentinelle approche */
+  const tail = useRef(null);
+  useEffect(() => {
+    if (done || !tail.current) return;
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) loadMore(); },
+                                        { rootMargin: "400px" });
+    io.observe(tail.current);
+    return () => io.disconnect();
+  }, [done, loadMore, items.length]);
+
+  /* un envoi termine en arriere-plan doit se voir sans geste de l'utilisateur */
+  const { doneCount } = useUploads();
+  const seenRef = useRef(doneCount);
+  useEffect(() => {
+    if (doneCount !== seenRef.current) { seenRef.current = doneCount; refresh(); }
+  }, [doneCount, refresh]);
+
+  const groups = useMemo(() => {
+    const m = {}; items.forEach(f => { (m[f.g] ||= []).push(f); }); return m;
+  }, [items]);
+
+  const mode = sel.length > 0;
+  const all = sel.length === items.length && items.length > 0;
+  const toggle = id => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const label = GLABEL[lang] || GLABEL.fr;
+
+  /* Appui long. Le moindre glissement annule : sans cela, un simple defilement
+     declenche la selection et la page semble sauter sous le doigt. */
+  const holdRef = useRef(null);
+  const firedRef = useRef(false);
+  const originRef = useRef(null);
+  const holdStart = (id, e) => {
+    firedRef.current = false;
+    originRef.current = { x: e.clientX, y: e.clientY };
+    holdRef.current = setTimeout(() => {
+      firedRef.current = true;
+      navigator.vibrate?.(18);
+      setSel(s => (s.includes(id) ? s : [...s, id]));
+    }, 450);
+  };
+  const holdMove = e => {
+    const o = originRef.current;
+    if (!o) return;
+    if (Math.abs(e.clientX - o.x) > 8 || Math.abs(e.clientY - o.y) > 8) holdEnd();
+  };
+  const holdEnd = () => { clearTimeout(holdRef.current); originRef.current = null; };
+
+  const holdProps = f => ({
+    onPointerDown: e => holdStart(f.id, e),
+    onPointerMove: holdMove,
+    onPointerUp: holdEnd,
+    onPointerLeave: holdEnd,
+    onPointerCancel: holdEnd,
+    onContextMenu: e => e.preventDefault(),
+    style: { touchAction: "pan-y", userSelect: "none", WebkitUserSelect: "none" },
+  });
+
+  const open = f => {
+    if (firedRef.current) { firedRef.current = false; return; }
+    if (mode) return toggle(f.id);
+    if (cat.key === "feo") return onPlay(items, f.id);
+    onOpen(f, isGallery ? items : []);
+  };
+
+  async function wipe(ids) {
+    setBusy(true);
+    try {
+      for (const id of ids) await removeFile(id);
+      setSel([]);
+      await refresh();
+    } catch (e) { alert(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function doMove(id, dest) {
+    setMoving(null);
+    setBusy(true);
+    try { await moveFile(id, dest); await refresh(); }
+    catch (e) { alert(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function doShare(f) {
+    try {
+      const r = await shareFile(f.id);
+      await navigator.clipboard?.writeText(r.url);
+      alert(`${t.linkCopied}\n\n${t.linkValid.replace("{d}", r.days)}`);
+    } catch (e) { alert(e.message); }
+  }
+
+  return (
+    <div className="pb-10">
+      {mode ? (
+        <div style={{ background: cat.bg }}
+             className="sticky top-0 z-20 flex items-center gap-1 px-4 py-3.5 mb-4">
+          <button onClick={() => setSel([])} aria-label="Annuler" className="p-1">
+            <X size={24} color={T.text} />
+          </button>
+          <span style={{ color: T.text, fontFamily: MONO }} className="flex-1 text-sm px-2">
+            {String(sel.length).padStart(2, "0")} {t.selected}
+          </span>
+          <button aria-label={t.download} className="p-2"
+                  onClick={() => sel.forEach(id => downloadToDisk(id))}>
+            <Download size={22} color={T.text} />
+          </button>
+          <button aria-label={t.del} className="p-2" disabled={busy} onClick={() => wipe(sel)}>
+            <Trash2 size={22} color={T.rose} />
+          </button>
+          <button aria-label={t.more} className="p-2"
+                  onClick={() => {
+                    const one = items.find(f => f.id === sel[0]);
+                    if (sel.length === 1 && one) setMenu(one); else setBulk(true);
+                  }}>
+            <MoreVertical size={22} color={T.text} />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between px-4 pt-4 pb-5">
+          <button onClick={onBack} aria-label="Retour" className="p-1 -ml-1">
+            <ArrowLeft size={26} color={T.text} />
+          </button>
+          <button onClick={() => setSel(items.map(f => f.id))} aria-label={t.selectAll}
+                  className="p-2" disabled={!items.length}>
+            <CheckSquare size={22} color={items.length ? T.mute : T.faint} />
+          </button>
+        </div>
+      )}
+
+      {!mode && (
+        <>
+          <div className="flex items-center gap-4 px-5 mb-5">
+            <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={62} icon={30} />
+            <div className="min-w-0">
+              <h1 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.02em" }}
+                  className="text-2xl font-bold uppercase">{t.cats[cat.key]}</h1>
+              <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
+                {meta.total} {t.files}
+              </p>
+              {items.length > 0 && (
+                <p style={{ color: T.faint }} className="text-xs mt-1">{t.holdToSelect}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="px-3 mb-4">
+            <SearchBar value={q} onChange={setQ} accent={cat.c} t={t} />
+          </div>
+
+          {items.length > 1 && (
+            <div className="flex items-center gap-2 px-4 mb-4 overflow-x-auto">
+              {[["recent", t.sortRecent], ["name", t.sortName], ["size", t.sortSize]].map(([k, l]) => (
+                <button key={k} onClick={() => setSort(k)}
+                  style={{
+                    background: sort === k ? cat.bg : "transparent",
+                    border: `1.5px solid ${sort === k ? cat.c : T.line}`,
+                    color: sort === k ? cat.c : T.mute,
+                  }}
+                  className="text-xs font-semibold px-3.5 py-2 rounded-full shrink-0">
+                  {l}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {mode && (
+        <button onClick={() => setSel(all ? [] : items.map(f => f.id))}
+          style={{ color: cat.c, fontFamily: DISPLAY, letterSpacing: "0.08em" }}
+          className="text-sm font-bold uppercase px-6 pb-4">
+          {all ? t.deselectAll : t.selectAll}
+        </button>
+      )}
+
+      {loading && (
+        <p style={{ color: T.mute }} className="text-sm px-6 py-10 text-center">{t.loading}</p>
+      )}
+
+      {error && !loading && (
+        <Panel className="mx-3 p-6 text-center">
+          <CircleAlert size={34} color={T.rose} strokeWidth={1.8} className="mx-auto mb-3" />
+          <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.loadFailed}</p>
+          <p style={{ color: T.mute }} className="text-sm mb-4">{error}</p>
+          <button onClick={refresh} style={{ color: T.violet }} className="text-sm font-bold">
+            {t.retry}
+          </button>
+        </Panel>
+      )}
+
+      {!loading && !error && items.length === 0 && (
+        <Panel className="mx-3 p-8 text-center">
+          <FolderOpen size={40} color={T.faint} strokeWidth={1.6} className="mx-auto mb-4" />
+          <p style={{ color: T.text }} className="text-base font-semibold mb-1">
+            {q ? t.noMatch : t.empty}
+          </p>
+          <p style={{ color: T.mute }} className="text-sm">{q ? t.noMatchSub : t.emptySub}</p>
+        </Panel>
+      )}
+
+      {isGallery && items.length > 0 && (
+        <div className="grid grid-cols-3 gap-1 px-1">
+          {items.map(f => {
+            const on = sel.includes(f.id);
+            return (
+              <button key={f.id} onClick={() => open(f)} {...holdProps(f)}
+                className="relative aspect-square overflow-hidden rounded-md active:opacity-70"
+                style={{ background: T.sunken }}>
+                {f.thumb
+                  ? <img src={f.thumb} alt={f.name} loading="lazy"
+                         className="w-full h-full object-cover" />
+                  : <span className="w-full h-full flex items-center justify-center">
+                      <Image size={22} color={T.faint} />
+                    </span>}
+                {on && (
+                  <span style={{ background: `${cat.c}CC` }}
+                        className="absolute inset-0 flex items-center justify-center">
+                    <Check size={30} color="#FFFFFF" strokeWidth={3} />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {!isGallery && Object.entries(groups).map(([g, list], gi) => (
+        <Reveal key={g} delay={gi * 60} className="mb-5">
+          <div className="flex items-center gap-3 px-6 pb-2">
+            <span style={{ color: T.mute, fontFamily: DISPLAY, letterSpacing: "0.14em" }}
+                  className="text-xs font-bold uppercase">{label[g]}</span>
+            <span style={{ background: T.line }} className="flex-1 h-px" />
+          </div>
+          <Panel className="mx-3 overflow-hidden">
+            {list.map((f, i) => {
+              const on = sel.includes(f.id);
+              return (
+                <div key={f.id}
+                     style={{ borderTop: i ? `1px solid ${T.line}` : "none",
+                              background: on ? cat.bg : "transparent" }}
+                     className="flex items-center">
+                  <button onClick={() => open(f)} {...holdProps(f)}
+                    className="flex items-center gap-4 pl-4 py-3.5 flex-1 min-w-0 text-left active:opacity-60">
+                    <span className="relative shrink-0">
+                      <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={46} icon={22} />
+                      {on && (
+                        <span style={{ background: cat.c }}
+                              className="absolute inset-0 rounded-full flex items-center justify-center">
+                          <Check size={22} color="#FFFFFF" strokeWidth={3} />
+                        </span>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span style={{ color: T.text }} className="block text-base truncate">{f.name}</span>
+                      <span style={{ color: T.mute, fontFamily: MONO }} className="block text-xs mt-1">
+                        {f.sizeLabel} · {f.when}
+                      </span>
+                    </span>
+                  </button>
+                  <button onClick={() => mode ? toggle(f.id) : setMenu(f)}
+                          aria-label="Options" className="px-4 py-5 shrink-0">
+                    <MoreVertical size={20} color={T.faint} />
+                  </button>
+                </div>
+              );
+            })}
+          </Panel>
+        </Reveal>
+      ))}
+
+      {!done && !loading && (
+        <div ref={tail} className="py-8 text-center">
+          <span style={{ color: T.faint, fontFamily: MONO }} className="text-xs">
+            {more ? t.loading : `${items.length} / ${meta.total}`}
+          </span>
+        </div>
+      )}
+
+      <FileMenu file={menu} cat={cat} t={t} folders={meta.folders}
+                onClose={() => setMenu(null)}
+                onOpen={() => { const f = menu; setMenu(null); open(f); }}
+                onDownload={() => { const f = menu; setMenu(null); downloadToDisk(f.id); }}
+                onShare={() => { const f = menu; setMenu(null); doShare(f); }}
+                onMove={() => { const f = menu; setMenu(null); setMoving(f); }}
+                onDelete={() => { const f = menu; setMenu(null); wipe([f.id]); }} />
+
+      <Sheet open={bulk} onClose={() => setBulk(false)}>
+        <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
+            className="text-lg font-bold uppercase px-6 pb-1">
+          {sel.length} {t.selected}
+        </h2>
+        <p style={{ color: T.mute }} className="text-sm px-6 pb-4">{t.bulkNote}</p>
+        <Panel className="mx-3 overflow-hidden mb-3">
+          <Row Icon={Download} title={t.download}
+               onClick={() => { setBulk(false); sel.forEach(id => downloadToDisk(id)); }} />
+        </Panel>
+        <Panel className="mx-3 overflow-hidden">
+          <Row Icon={Trash2} title={t.del} danger
+               onClick={() => { setBulk(false); wipe(sel); }} />
+        </Panel>
+      </Sheet>
+
+      <MovePicker open={!!moving} folders={meta.folders} cat={cat} t={t}
+                  current={moving?.folder_id || null}
+                  onPick={dest => doMove(moving.id, dest)}
+                  onClose={() => setMoving(null)} />
+
+      <button onClick={() => setUp(true)}
+        style={{ background: `linear-gradient(145deg, ${cat.c}, ${T.violet})`,
+                 boxShadow: halo(cat.c) }}
+        className="fixed right-5 bottom-28 w-16 h-16 rounded-full flex items-center justify-center z-40 active:scale-95"
+        aria-label={t.uploadHere}>
+        <Upload size={26} color="#FFFFFF" strokeWidth={2.4} />
+      </button>
+
+      <UploadPicker open={up} cat={cat} t={t} onClose={() => setUp(false)} />
+    </div>
+  );
+}
+
+/* ─────────── home ─────────── */
+function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, user, t }) {
+  const { meta, quota, loading } = useFiles(null, { limit: 1 });
+
+  /* les compteurs viennent du serveur : inutile de tirer tous les fichiers
+     pour savoir combien il y en a */
+  const stats = meta.counts || {};
+
+  const totalGo = Math.max(1, Math.round(quota.quota / 1024 ** 3));
+  const usedGo = (quota.used / 1024 ** 3).toFixed(quota.used < 1024 ** 3 ? 2 : 1).replace(".", ",");
+  const freeGo = Math.max(0, totalGo - quota.used / 1024 ** 3).toFixed(0);
+
+  const segs = [
+    { c: T.rose,   k: "sary" },
+    { c: T.violet, k: "video" },
+    { c: T.gold,   k: "feo" },
+    { c: T.blue,   k: "doc" },
+  ].map(s => ({ ...s, v: quota.quota ? (stats[s.k]?.bytes || 0) / quota.quota * 100 : 0 }));
+
+  const initial = (user?.name || user?.email || "?").trim().charAt(0).toUpperCase();
+
+  return (
+    <div className="pb-10">
+      <header className="flex items-center justify-between px-4 pt-5 pb-6">
+        <button onClick={onMenu} aria-label="Menu" className="p-1">
+          <Menu size={26} color={T.text} />
+        </button>
+        <Wordmark size={40} text={20} />
+        <button onClick={onAccount} aria-label={t.account}
+          style={{ background: `linear-gradient(145deg, ${T.violet}, ${T.blue})` }}
+          className="w-10 h-10 rounded-full flex items-center justify-center active:opacity-70">
+          <span style={{ color: "#FFFFFF", fontFamily: DISPLAY }} className="text-base font-bold">
+            {initial}
+          </span>
+        </button>
+      </header>
+
+      <Reveal className="px-3 mb-6">
+        <GlowFrame c={T.violet} radius={999} speed={6}>
+          <button onClick={onSearch}
+                  className="w-full flex items-center gap-3 px-5 py-4 rounded-full active:opacity-60">
+            <Search size={21} color={T.mute} />
+            <span style={{ color: T.mute }} className="text-base">{t.search}</span>
+          </button>
+        </GlowFrame>
+      </Reveal>
+
+      <Reveal delay={60}>
+      <GlowFrame c={T.blue} className="mx-3 mb-8" speed={7}>
+      <button onClick={onFolders} className="w-full p-5 text-left active:opacity-70">
+        <div className="flex items-start justify-between mb-5">
+          <div>
+            <div style={{ color: T.faint, fontFamily: DISPLAY, letterSpacing: "0.18em", fontSize: 10 }}
+                 className="font-bold uppercase mb-1.5">{t.storage}</div>
+            <div className="flex items-baseline gap-2">
+              <span style={{ color: T.text, fontFamily: DISPLAY }}
+                    className="text-5xl font-bold leading-none">{loading ? "—" : usedGo}</span>
+              <span style={{ color: T.mute, fontFamily: DISPLAY }}
+                    className="text-3xl font-bold leading-none">/ {totalGo} Go</span>
+            </div>
+          </div>
+          <span style={{ color: T.blue, background: T.blueBg, fontFamily: DISPLAY,
+                         letterSpacing: "0.12em", fontSize: 10 }}
+                className="font-bold px-2.5 py-1 rounded-full">{t.free}</span>
+        </div>
+
+        <div style={{ background: T.sunken }} className="h-4 w-full flex gap-1 rounded-full overflow-hidden mb-3">
+          {segs.map((s, i) => (
+            <div key={i} style={{ width: `${Math.max(s.v, s.v > 0 ? 2 : 0)}%`, background: s.c }}
+                 className="rounded-full" />
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {segs.map(s => (
+            <span key={s.k} className="flex items-center gap-1.5">
+              <span style={{ background: s.c }} className="w-2.5 h-2.5 rounded-full" />
+              <span style={{ color: T.mute, fontSize: 11 }}>{t.cats[s.k]}</span>
+            </span>
+          ))}
+          <span style={{ color: T.faint, fontFamily: MONO, fontSize: 11 }} className="ml-auto">
+            {freeGo} Go {t.freeSpace}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 mt-5 pt-4"
+             style={{ borderTop: `1px solid ${T.line}` }}>
+          <Folder size={17} color={T.violet} />
+          <span style={{ color: T.violet }} className="text-sm font-semibold">{t.openFolders}</span>
+          <ChevronRight size={17} color={T.violet} className="ml-auto" />
+        </div>
+      </button>
+      </GlowFrame>
+      </Reveal>
+
+      <div className="flex items-center gap-3 px-5 mb-4">
+        <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.12em" }}
+            className="text-sm font-bold uppercase">{t.categories}</h2>
+        <span style={{ background: T.line }} className="flex-1 h-px" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 px-3">
+        {CATS.map((c, i) => {
+          const s = stats[c.key] || { n: 0, bytes: 0 };
+          return (
+            <Reveal key={c.key} delay={i * 70}>
+              <GlowFrame c={c.c} speed={4.5 + i * 0.6}>
+                <button onClick={() => onCat(c)}
+                        className="w-full h-full p-4 rounded-3xl text-left active:opacity-60">
+                  <div className="mb-4"><Tile c={c.c} bg={c.bg} Icon={c.Icon} /></div>
+                  <div style={{ color: T.text }} className="text-base font-semibold leading-snug">
+                    {t.cats[c.key]}
+                  </div>
+                  <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1.5">
+                    {s.n ? `${humanSize(s.bytes)} · ${s.n}` : t.emptyShort}
+                  </div>
+                </button>
+              </GlowFrame>
+            </Reveal>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ─────────── folder (mixed contents) ─────────── */
 
 /**
@@ -1572,7 +2103,21 @@ function SearchView({ onBack, onOpen, onPlay, t }) {
 
 /* ─────────── shell ─────────── */
 export default function ToCloud() {
-  const [user, setUser] = useState(() => load("tc_user", null));
+  const [user, setUser] = useState(null);
+  const [ready, setReady] = useState(false);
+
+  /* Supabase detient la session : on l'ecoute au lieu de la deviner. Cela
+     couvre aussi le retour du parcours Google, qui arrive par redirection. */
+  useEffect(() => {
+    let alive = true;
+    const sync = async () => {
+      const p = await profile().catch(() => null);
+      if (alive) { setUser(p); setReady(true); }
+    };
+    sync();
+    const { data } = supabase.auth.onAuthStateChange(() => sync());
+    return () => { alive = false; data.subscription.unsubscribe(); };
+  }, []);
   const [lang, setLang] = useState(() => load("tc_lang", "fr"));
   const [view, setView] = useState("home");
   const [cat, setCat] = useState(null);
@@ -1620,16 +2165,22 @@ export default function ToCloud() {
     save("tc_lang", code);
   }
 
-  function signOut() {
-    logout();
+  async function signOut() {
+    await logout();
     setUser(null);
     setView("home");
     setCat(null);
   }
 
-  if (!user) {
-    return <Auth lang={lang} onDone={u => { save("tc_user", u); setUser(u); }} />;
+  if (!ready) {
+    return (
+      <div style={{ background: T.bg }} className="w-full min-h-screen flex items-center justify-center">
+        <Logo size={64} />
+      </div>
+    );
   }
+
+  if (!user) return <Auth lang={lang} onDone={() => {}} />;
 
   return (
     <UploadProvider>

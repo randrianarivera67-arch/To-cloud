@@ -1,16 +1,15 @@
 name = "to-cloud-api"
 main = "src/index.js"
 compatibility_date = "2025-01-15"
-
-# Secrets (ne jamais les mettre ici) :
-#   npx wrangler secret put TELEGRAM_BOT_TOKENS   # token1,token2,token3
-#   npx wrangler secret put TELEGRAM_CHANNEL_ID   # -1001234567890
-#   npx wrangler secret put JWT_SECRET            # chaine aleatoire longue
-#   npx wrangler secret put SIGN_SECRET           # chaine aleatoire longue
-
 keep_vars = true
 
+# Secrets a definir dans le tableau de bord (type Secret, pas Text) :
+#   TELEGRAM_BOT_TOKENS    token1,token2,token3
+#   TELEGRAM_CHANNEL_ID    -100xxxxxxxxxx
+#   SUPABASE_JWT_SECRET    Supabase → Settings → API → JWT Secret
+#   SUPABASE_ANON_KEY      Supabase → Settings → API → anon public
+#   SUPABASE_SERVICE_KEY   Supabase → Settings → API → service_role
+
 [vars]
-REGISTRY_MESSAGE_ID = "4"
-CHUNK_SIZE = "18874368"
+SUPABASE_URL = "https://VOTRE-PROJET.supabase.co"
 ALLOWED_ORIGIN = "https://to-cloud.pages.dev"

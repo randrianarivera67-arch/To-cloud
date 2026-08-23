@@ -1,443 +1,241 @@
-import {
-  putChunk, chunkUrl, dropChunk, loadIndex, saveIndex, mutateIndex,
-} from "./telegram.js";
-import {
-  hashPassword, verifyPassword, issueToken, readToken, bearer,
-  signChunk, checkChunk, signShare, userIdFor, newId,
-} from "./auth.js";
-
-/* ── reponses ─────────────────────────────────────────────────────────── */
-
 /**
- * Origines autorisees.
+ * To-cloud — passerelle Telegram.
  *
- * L'APK ne sert pas depuis le domaine du site : Capacitor charge les pages
- * depuis https://localhost (ou capacitor://localhost selon la version). Sans
- * ces entrees, chaque appel echoue avec « Failed to fetch ».
+ * Le Worker ne connait plus les comptes ni les fichiers : Supabase s'en charge.
+ * Il ne fait que trois choses, et rien d'autre :
+ *   1. deposer un morceau sur le canal prive
+ *   2. rendre un morceau a son proprietaire
+ *   3. servir un fichier entier derriere un lien de partage
+ *
+ * Le jeton de l'utilisateur est verifie a chaque appel, puis retransmis a
+ * Supabase : c'est la base, via ses regles RLS, qui decide de ce que la
+ * personne a le droit de voir. Le Worker ne tranche jamais lui-meme.
  */
+
+const API = "https://api.telegram.org";
+
+/* ─────────── reponses ─────────── */
+
 const ORIGINS = [
-  "https://localhost",
-  "capacitor://localhost",
-  "http://localhost",
-  "http://localhost:5173",
-  "http://localhost:4173",
+  "https://localhost", "capacitor://localhost", "http://localhost",
+  "http://localhost:5173", "http://localhost:4173",
 ];
 
-const corsFor = (env, request) => {
+const cors = (env, request) => {
   const origin = request?.headers.get("origin") || "";
   const allowed = [env.ALLOWED_ORIGIN, ...ORIGINS].filter(Boolean);
-  return allowed.includes(origin) ? origin : (env.ALLOWED_ORIGIN || "*");
+  return {
+    "access-control-allow-origin": allowed.includes(origin) ? origin : (env.ALLOWED_ORIGIN || "*"),
+    "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
+    "access-control-allow-headers": "authorization,content-type",
+    "access-control-max-age": "86400",
+    vary: "origin",
+  };
 };
 
-const cors = (env, request) => ({
-  "access-control-allow-origin": corsFor(env, request),
-  "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
-  "access-control-allow-headers": "authorization,content-type",
-  "access-control-max-age": "86400",
-  "vary": "origin",
-});
-
-let CURRENT = null;   // requete en cours, pour connaitre l'origine appelante
-
-const json = (env, data, status = 200) =>
+const json = (env, request, data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json", ...cors(env, CURRENT) },
+    headers: { "content-type": "application/json", ...cors(env, request) },
   });
 
-const fail = (env, msg, status = 400) => json(env, { error: msg }, status);
+const fail = (env, request, msg, status = 400) => json(env, request, { error: msg }, status);
 
-/* ── categories ───────────────────────────────────────────────────────── */
+/* ─────────── jeton Supabase ─────────── */
 
-const EXT = {
-  sary:  ["jpg", "jpeg", "png", "gif", "webp", "heic", "bmp", "svg"],
-  video: ["mp4", "mkv", "mov", "avi", "webm", "3gp", "m4v"],
-  feo:   ["mp3", "wav", "ogg", "m4a", "flac", "aac", "opus"],
-  doc:   ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "odt"],
-  apk:   ["apk", "aab", "xapk"],
+const b64url = str => {
+  const pad = str.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(pad + "=".repeat((4 - pad.length % 4) % 4));
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
 };
 
-function categorize(name, hinted) {
-  if (hinted && (EXT[hinted] || hinted === "hafa")) return hinted;
-  const ext = (name.split(".").pop() || "").toLowerCase();
-  for (const [key, list] of Object.entries(EXT)) if (list.includes(ext)) return key;
-  return "hafa";
-}
-
-/* ── garde ────────────────────────────────────────────────────────────── */
-
-async function requireUser(env, request) {
-  const session = await readToken(env, bearer(request));
-  if (!session) throw json(env, { error: "Session expiree" }, 401);
-  return session;
-}
-
-/* ── routes ───────────────────────────────────────────────────────────── */
-
-async function register(env, request) {
-  const { name, email, password } = await request.json();
-  if (!/^\S+@\S+\.\S+$/.test(email || "")) return fail(env, "Adresse e-mail invalide");
-  if ((password || "").length < 8) return fail(env, "Mot de passe trop court");
-
-  const userId = await userIdFor(email);
-  const existing = await loadIndex(env, userId, email);
-  if (existing.auth) return fail(env, "Ce compte existe deja", 409);
-
-  const { hash, salt } = await hashPassword(password);
-  existing.auth = { hash, salt, provider: "email", created: Date.now() };
-  existing.name = (name || email.split("@")[0]).trim();
-  await saveIndex(env, existing);
-
-  return json(env, {
-    token: await issueToken(env, { userId, email }),
-    user: { name: existing.name, email, quota: existing.quota, used: existing.used },
-  });
-}
-
-async function login(env, request) {
-  const { email, password } = await request.json();
-  const userId = await userIdFor(email || "");
-  const index = await loadIndex(env, userId, email);
-
-  if (!index.auth || index.auth.provider !== "email") {
-    return fail(env, "Identifiants incorrects", 401);
-  }
-  const ok = await verifyPassword(password || "", index.auth.hash, index.auth.salt);
-  if (!ok) return fail(env, "Identifiants incorrects", 401);
-
-  return json(env, {
-    token: await issueToken(env, { userId, email }),
-    user: { name: index.name, email, quota: index.quota, used: index.used },
-  });
-}
-
-async function me(env, request) {
-  const s = await requireUser(env, request);
-  const index = await loadIndex(env, s.userId, s.email);
-  return json(env, {
-    user: { name: index.name, email: s.email, quota: index.quota, used: index.used },
-  });
-}
-
-async function listFiles(env, request) {
-  const s = await requireUser(env, request);
-  const index = await loadIndex(env, s.userId, s.email);
-
-  const q = new URL(request.url).searchParams;
-  const cat = q.get("cat");
-  const folder = q.get("folder");
-  const withThumbs = q.get("thumbs") === "1";
-  const limit = Math.min(60, Math.max(1, Number(q.get("limit") || 20)));
-  const cursor = Number(q.get("cursor") || 0);
-
-  const all = (index.files || [])
-    .filter(f => !cat || f.cat === cat)
-    .filter(f => !folder ? true : (f.folder || "root") === folder)
-    .sort((a, b) => b.created - a.created);
-
-  const page = all.slice(cursor, cursor + limit).map(({ chunks, thumb, ...rest }) => ({
-    ...rest,
-    parts: chunks.length,
-    ...(withThumbs && thumb ? { thumb } : {}),
-  }));
-
-  return json(env, {
-    files: page,
-    total: all.length,
-    cursor: cursor + page.length,
-    done: cursor + page.length >= all.length,
-    quota: index.quota,
-    used: index.used,
-    counts: (index.files || []).reduce((m, f) => {
-      const e = m[f.cat] || (m[f.cat] = { n: 0, bytes: 0 });
-      e.n += 1; e.bytes += f.size;
-      return m;
-    }, {}),
-    folders: index.folders || [],
-    trashCount: (index.trash || []).length,
-  });
-}
-
-/** Reserve la place avant l'envoi — evite de decouvrir le quota au dernier morceau. */
-async function uploadInit(env, request) {
-  const s = await requireUser(env, request);
-  const { name, size, cat } = await request.json();
-  if (!name || !size) return fail(env, "Nom ou taille manquant");
-
-  const index = await loadIndex(env, s.userId, s.email);
-  if (index.used + size > index.quota) {
-    return fail(env, "Quota depasse — contactez l'administrateur", 507);
-  }
-
-  const chunkSize = Number(env.CHUNK_SIZE || 18874368);
-  return json(env, {
-    uploadId: newId(),
-    chunkSize,
-    parts: Math.ceil(size / chunkSize),
-    cat: categorize(name, cat),
-  });
-}
-
-async function uploadChunk(env, request) {
-  await requireUser(env, request);
-  const url = new URL(request.url);
-  const uploadId = url.searchParams.get("uploadId");
-  const idx = Number(url.searchParams.get("idx"));
-  if (!uploadId || Number.isNaN(idx)) return fail(env, "Parametres manquants");
-
-  const blob = await request.blob();
-  if (!blob.size) return fail(env, "Morceau vide");
-
-  const part = await putChunk(env, blob, `${uploadId}_${String(idx).padStart(4, "0")}.part`, idx);
-  return json(env, { idx, ...part });
-}
-
-async function uploadComplete(env, request) {
-  const s = await requireUser(env, request);
-  const { name, size, cat, chunks, thumb, folder } = await request.json();
-  if (!Array.isArray(chunks) || !chunks.length) return fail(env, "Aucun morceau");
-
-  const id = newId();
-  const record = {
-    id,
-    name,
-    size,
-    cat: categorize(name, cat),
-    created: Date.now(),
-    // vignette WebP ~4 Ko generee par le navigateur : evite de telecharger
-    // l'image entiere juste pour peupler une grille
-    ...(thumb ? { thumb } : {}),
-    ...(folder ? { folder } : {}),
-    chunks: chunks
-      .sort((a, b) => a.idx - b.idx)
-      .map(c => ({ i: c.idx, f: c.file_id, m: c.message_id, b: c.bot, s: c.size })),
-  };
-
-  await mutateIndex(env, s.userId, s.email, index => {
-    if (index.used + size > index.quota) throw new Error("Quota depasse");
-    index.files.push(record);
-    index.used += size;
-    return index;
-  });
-
-  return json(env, { id, cat: record.cat });
-}
-
 /**
- * Rend la liste des morceaux a assembler.
- * Le navigateur telecharge et recolle — la bande passante ne passe pas par
- * le Worker, ce qui garde le cout a zero.
- */
-async function fileUrls(env, request, id) {
-  const s = await requireUser(env, request);
-  const index = await loadIndex(env, s.userId, s.email);
-  const file = index.files.find(f => f.id === id);
-  if (!file) return fail(env, "Fichier introuvable", 404);
-
-  const parts = await Promise.all(file.chunks.map(async c => ({
-    idx: c.i,
-    size: c.s,
-    url: `${new URL(request.url).origin}/api/dl/${id}/${c.i}?t=${await signChunk(env, id, c.i)}`,
-  })));
-
-  return json(env, { name: file.name, size: file.size, cat: file.cat, parts });
-}
-
-/**
- * Renvoie les octets d'un morceau.
+ * Verifie la signature HS256 posee par Supabase.
  *
- * Une redirection 302 vers api.telegram.org serait moins couteuse, mais
- * Telegram n'envoie aucun en-tete CORS : le navigateur refuse alors la
- * reponse. Le Worker doit donc relayer le flux. Il le fait en streaming, sans
- * rien garder en memoire.
+ * Sans cette verification, n'importe qui pourrait fabriquer un jeton et faire
+ * deposer des fichiers sur le canal a nos frais.
  */
-async function download(env, request, id, idx) {
-  const token = new URL(request.url).searchParams.get("t");
-  if (!await checkChunk(env, id, Number(idx), token)) return fail(env, "Lien expire", 403);
+async function verifyJWT(env, jwt) {
+  if (!jwt || jwt.split(".").length !== 3) return null;
+  const [head, body, mac] = jwt.split(".");
 
-  const s = await readToken(env, bearer(request));
-  if (!s) return fail(env, "Session expiree", 401);
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(env.SUPABASE_JWT_SECRET),
+    { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+  );
+  const ok = await crypto.subtle.verify(
+    "HMAC", key, b64url(mac), new TextEncoder().encode(`${head}.${body}`)
+  );
+  if (!ok) return null;
 
-  const index = await loadIndex(env, s.userId, s.email);
-  const file = index.files.find(f => f.id === id);
-  const chunk = file?.chunks.find(c => c.i === Number(idx));
-  if (!chunk) return fail(env, "Morceau introuvable", 404);
+  const claims = JSON.parse(new TextDecoder().decode(b64url(body)));
+  if (claims.exp * 1000 < Date.now()) return null;
+  return claims;      // claims.sub = identifiant de l'utilisateur
+}
 
-  const url = await chunkUrl(env, chunk.f, chunk.b);
-  const upstream = await fetch(url);
-  if (!upstream.ok) return fail(env, "Morceau indisponible sur le canal", 502);
+const bearer = request => {
+  const h = request.headers.get("authorization") || "";
+  return h.startsWith("Bearer ") ? h.slice(7) : null;
+};
+
+/* ─────────── Supabase (lecture soumise a RLS) ─────────── */
+
+/**
+ * Interroge Supabase avec le jeton de l'appelant.
+ * Les regles de la base filtrent le resultat : impossible de recuperer la ligne
+ * de quelqu'un d'autre, meme en connaissant son identifiant.
+ */
+async function ask(env, jwt, path) {
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+    headers: {
+      apikey: env.SUPABASE_ANON_KEY,
+      authorization: `Bearer ${jwt}`,
+      accept: "application/json",
+    },
+  });
+  if (!res.ok) throw new Error(`Supabase ${res.status}`);
+  return res.json();
+}
+
+/** Requete de service, reservee au partage public (aucun utilisateur connecte). */
+async function askAdmin(env, path) {
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      accept: "application/json",
+    },
+  });
+  if (!res.ok) throw new Error(`Supabase ${res.status}`);
+  return res.json();
+}
+
+/* ─────────── Telegram ─────────── */
+
+const bots = env => {
+  const list = (env.TELEGRAM_BOT_TOKENS || "").split(",").map(s => s.trim()).filter(Boolean);
+  if (!list.length) throw new Error("TELEGRAM_BOT_TOKENS manquant");
+  return list;
+};
+
+async function tg(token, method, body, form = false) {
+  const res = await fetch(`${API}/bot${token}/${method}`, {
+    method: "POST",
+    ...(form ? { body } : {
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(`Telegram ${method}: ${data.description || res.status}`);
+  return data.result;
+}
+
+/** URL de telechargement fraiche : file_path expire en une heure environ. */
+async function chunkUrl(env, fileId, botIndex = 0) {
+  const list = bots(env);
+  const token = list[botIndex] ?? list[0];
+  const f = await tg(token, "getFile", { file_id: fileId });
+  return `${API}/file/bot${token}/${f.file_path}`;
+}
+
+/* ─────────── routes ─────────── */
+
+async function putChunk(env, request) {
+  const claims = await verifyJWT(env, bearer(request));
+  if (!claims) return fail(env, request, "Session expiree", 401);
+
+  const idx = Number(new URL(request.url).searchParams.get("idx") || 0);
+  const blob = await request.blob();
+  if (!blob.size) return fail(env, request, "Morceau vide");
+
+  const list = bots(env);
+  const botIndex = idx % list.length;      // repartit la charge entre les bots
+
+  const form = new FormData();
+  form.append("chat_id", env.TELEGRAM_CHANNEL_ID);
+  form.append("document", blob, `${claims.sub}_${String(idx).padStart(4, "0")}.part`);
+  form.append("disable_notification", "true");
+
+  const msg = await tg(list[botIndex], "sendDocument", form, true);
+
+  return json(env, request, {
+    file_id: msg.document.file_id,
+    message_id: msg.message_id,
+    bot: botIndex,
+    size: msg.document.file_size,
+  });
+}
+
+async function getChunk(env, request, fileId, idx) {
+  const jwt = bearer(request);
+  const claims = await verifyJWT(env, jwt);
+  if (!claims) return fail(env, request, "Session expiree", 401);
+
+  const rows = await ask(env, jwt,
+    `chunks?file_id=eq.${fileId}&idx=eq.${Number(idx)}&select=tg_file_id,bot,size`);
+  if (!rows.length) return fail(env, request, "Morceau introuvable", 404);
+
+  const c = rows[0];
+  const upstream = await fetch(await chunkUrl(env, c.tg_file_id, c.bot));
+  if (!upstream.ok) return fail(env, request, "Morceau indisponible sur le canal", 502);
 
   return new Response(upstream.body, {
     headers: {
       "content-type": "application/octet-stream",
-      "content-length": String(chunk.s),
+      "content-length": String(c.size),
       "cache-control": "private, max-age=600",
       ...cors(env, request),
     },
   });
 }
 
-/**
- * Suppression douce.
- *
- * Le fichier quitte la liste mais ses morceaux restent sur le canal : c'est ce
- * qui rend la restauration possible. Le quota n'est libere qu'a la purge, sinon
- * on promettrait de la place toujours occupee.
- */
-async function remove(env, request, id) {
-  const s = await requireUser(env, request);
+/** Retire les morceaux du canal avant la suppression definitive de la ligne. */
+async function dropChunks(env, request, fileId) {
+  const jwt = bearer(request);
+  const claims = await verifyJWT(env, jwt);
+  if (!claims) return fail(env, request, "Session expiree", 401);
 
-  await mutateIndex(env, s.userId, s.email, index => {
-    const i = index.files.findIndex(f => f.id === id);
-    if (i === -1) throw new Error("Fichier introuvable");
-    const victim = index.files.splice(i, 1)[0];
-    victim.deleted = Date.now();
-    (index.trash ||= []).push(victim);
-    return index;
-  });
+  const rows = await ask(env, jwt,
+    `chunks?file_id=eq.${fileId}&select=tg_message_id,bot`);
 
-  return json(env, { ok: true });
-}
-
-async function listTrash(env, request) {
-  const s = await requireUser(env, request);
-  const index = await loadIndex(env, s.userId, s.email);
-  const files = (index.trash || [])
-    .sort((a, b) => b.deleted - a.deleted)
-    .map(({ chunks, thumb, ...rest }) => ({ ...rest, parts: chunks.length }));
-  return json(env, { files });
-}
-
-async function restore(env, request, id) {
-  const s = await requireUser(env, request);
-  await mutateIndex(env, s.userId, s.email, index => {
-    const i = (index.trash || []).findIndex(f => f.id === id);
-    if (i === -1) throw new Error("Introuvable dans la corbeille");
-    const back = index.trash.splice(i, 1)[0];
-    delete back.deleted;
-    index.files.push(back);
-    return index;
-  });
-  return json(env, { ok: true });
-}
-
-/** Efface pour de bon : morceaux retires du canal, quota rendu. */
-async function purge(env, request, id) {
-  const s = await requireUser(env, request);
-  const gone = [];
-
-  await mutateIndex(env, s.userId, s.email, index => {
-    const keep = [];
-    for (const f of (index.trash || [])) {
-      if (id === "all" || f.id === id) {
-        gone.push(f);
-        index.used = Math.max(0, index.used - f.size);
-      } else keep.push(f);
+  const list = bots(env);
+  for (const c of rows) {
+    if (!c.tg_message_id) continue;
+    try {
+      await tg(list[c.bot] ?? list[0], "deleteMessage", {
+        chat_id: env.TELEGRAM_CHANNEL_ID,
+        message_id: c.tg_message_id,
+      });
+    } catch {
+      // un message trop ancien n'est plus supprimable : sans consequence,
+      // la ligne disparait de toute facon
     }
-    if (!gone.length) throw new Error("Rien a purger");
-    index.trash = keep;
-    return index;
-  });
-
-  for (const f of gone) {
-    for (const c of f.chunks) await dropChunk(env, c.m, c.b);
   }
-  return json(env, { ok: true, removed: gone.length });
+  return json(env, request, { ok: true, removed: rows.length });
 }
 
-/* ── dossiers ── */
+/** Lien public : le fichier entier, morceaux recolles a la volee. */
+async function serveShare(env, request, shareId) {
+  const rows = await askAdmin(env,
+    `shares?id=eq.${shareId}&select=expires_at,file_id,files(name,size)`);
+  if (!rows.length) return fail(env, request, "Lien introuvable", 404);
 
-async function addFolder(env, request) {
-  const s = await requireUser(env, request);
-  const { name, cat } = await request.json();
-  if (!name || !name.trim()) return fail(env, "Nom de dossier vide");
+  const share = rows[0];
+  if (new Date(share.expires_at).getTime() < Date.now()) {
+    return fail(env, request, "Lien expire", 410);
+  }
 
-  const folder = {
-    id: newId(),
-    name: name.trim().slice(0, 60),
-    cat: cat || null,
-    created: Date.now(),
-  };
-  await mutateIndex(env, s.userId, s.email, index => {
-    (index.folders ||= []).push(folder);
-    return index;
-  });
-  return json(env, folder);
-}
+  const chunks = await askAdmin(env,
+    `chunks?file_id=eq.${share.file_id}&select=idx,tg_file_id,bot&order=idx.asc`);
+  if (!chunks.length) return fail(env, request, "Fichier vide", 404);
 
-/** Le dossier disparait, ses fichiers remontent a la racine — jamais supprimes. */
-async function dropFolder(env, request, id) {
-  const s = await requireUser(env, request);
-  await mutateIndex(env, s.userId, s.email, index => {
-    index.folders = (index.folders || []).filter(f => f.id !== id);
-    index.files.forEach(f => { if (f.folder === id) delete f.folder; });
-    return index;
-  });
-  return json(env, { ok: true });
-}
-
-async function moveFile(env, request, id) {
-  const s = await requireUser(env, request);
-  const { folder } = await request.json();
-  await mutateIndex(env, s.userId, s.email, index => {
-    const f = index.files.find(x => x.id === id);
-    if (!f) throw new Error("Fichier introuvable");
-    if (folder) f.folder = folder; else delete f.folder;
-    return index;
-  });
-  return json(env, { ok: true });
-}
-
-/* ── partage ── */
-
-/**
- * Fabrique un lien public temporaire.
- *
- * L'identifiant du compte voyage dans l'URL : sans lui, impossible de
- * retrouver l'index sans session. Le jeton signe empeche de deviner les liens
- * des autres.
- */
-async function makeShare(env, request, id) {
-  const s = await requireUser(env, request);
-  const index = await loadIndex(env, s.userId, s.email);
-  const file = index.files.find(f => f.id === id);
-  if (!file) return fail(env, "Fichier introuvable", 404);
-
-  const days = 7;
-  const exp = Date.now() + days * 86400_000;
-  const mac = await signShare(env, s.userId, id, exp);
-  const origin = new URL(request.url).origin;
-
-  return json(env, {
-    url: `${origin}/api/s/${s.userId}/${id}?e=${exp}&t=${mac}`,
-    expires: exp,
-    days,
-  });
-}
-
-/** Sert le fichier entier, morceaux recolles a la volee, sans session. */
-async function serveShare(env, request, userId, id) {
-  const q = new URL(request.url).searchParams;
-  const exp = Number(q.get("e") || 0);
-  const mac = q.get("t");
-
-  if (!exp || exp < Date.now()) return fail(env, "Lien expire", 410);
-  if (await signShare(env, userId, id, exp) !== mac) return fail(env, "Lien invalide", 403);
-
-  const index = await loadIndex(env, userId, null);
-  const file = index.files.find(f => f.id === id);
-  if (!file) return fail(env, "Fichier introuvable", 404);
-
-  const chunks = [...file.chunks].sort((a, b) => a.i - b.i);
-
-  // flux continu : le Worker ne garde jamais le fichier entier en memoire
   const stream = new ReadableStream({
     async start(ctrl) {
       try {
         for (const c of chunks) {
-          const url = await chunkUrl(env, c.f, c.b);
-          const res = await fetch(url);
-          if (!res.ok) throw new Error(`morceau ${c.i}`);
+          const res = await fetch(await chunkUrl(env, c.tg_file_id, c.bot));
+          if (!res.ok) throw new Error(`morceau ${c.idx}`);
           const reader = res.body.getReader();
           for (;;) {
             const { done, value } = await reader.read();
@@ -452,69 +250,46 @@ async function serveShare(env, request, userId, id) {
     },
   });
 
+  const file = share.files || {};
   return new Response(stream, {
     headers: {
       "content-type": "application/octet-stream",
-      "content-length": String(file.size),
-      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-      "cache-control": "private, max-age=600",
+      ...(file.size ? { "content-length": String(file.size) } : {}),
+      "content-disposition":
+        `attachment; filename*=UTF-8''${encodeURIComponent(file.name || "to-cloud")}`,
     },
   });
 }
 
-/* ── routeur ──────────────────────────────────────────────────────────── */
+/* ─────────── routeur ─────────── */
 
 export default {
   async fetch(request, env) {
-    CURRENT = request;
-    if (request.method === "OPTIONS") return new Response(null, { headers: cors(env, request) });
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: cors(env, request) });
+    }
 
-    const { pathname } = new URL(request.url);
-    const seg = pathname.split("/").filter(Boolean);   // ["api", ...]
+    const seg = new URL(request.url).pathname.split("/").filter(Boolean);
 
     try {
-      if (seg[0] !== "api") return fail(env, "Introuvable", 404);
+      if (seg[0] !== "api") return fail(env, request, "Introuvable", 404);
 
-      if (seg[1] === "auth") {
-        if (seg[2] === "register" && request.method === "POST") return await register(env, request);
-        if (seg[2] === "login"    && request.method === "POST") return await login(env, request);
-        if (seg[2] === "me"       && request.method === "GET")  return await me(env, request);
+      if (seg[1] === "upload" && seg[2] === "chunk" && request.method === "POST") {
+        return await putChunk(env, request);
+      }
+      if (seg[1] === "dl" && seg[2] && seg[3]) {
+        return await getChunk(env, request, seg[2], seg[3]);
+      }
+      if (seg[1] === "chunks" && seg[2] && request.method === "DELETE") {
+        return await dropChunks(env, request, seg[2]);
+      }
+      if (seg[1] === "s" && seg[2]) {
+        return await serveShare(env, request, seg[2]);
       }
 
-      if (seg[1] === "files" && request.method === "GET") return await listFiles(env, request);
-
-      if (seg[1] === "upload") {
-        if (seg[2] === "init"     && request.method === "POST") return await uploadInit(env, request);
-        if (seg[2] === "chunk"    && request.method === "POST") return await uploadChunk(env, request);
-        if (seg[2] === "complete" && request.method === "POST") return await uploadComplete(env, request);
-      }
-
-      if (seg[1] === "trash") {
-        if (!seg[2] && request.method === "GET")    return await listTrash(env, request);
-        if (seg[2] && request.method === "DELETE")  return await purge(env, request, seg[2]);
-      }
-
-      if (seg[1] === "folders") {
-        if (!seg[2] && request.method === "POST")   return await addFolder(env, request);
-        if (seg[2] && request.method === "DELETE")  return await dropFolder(env, request, seg[2]);
-      }
-
-      if (seg[1] === "file" && seg[2]) {
-        if (seg[3] === "restore" && request.method === "POST") return await restore(env, request, seg[2]);
-        if (seg[3] === "move"    && request.method === "POST") return await moveFile(env, request, seg[2]);
-        if (seg[3] === "share"   && request.method === "POST") return await makeShare(env, request, seg[2]);
-        if (seg[3] === "urls" && request.method === "GET")    return await fileUrls(env, request, seg[2]);
-        if (request.method === "DELETE")                      return await remove(env, request, seg[2]);
-      }
-
-      if (seg[1] === "s" && seg[2] && seg[3]) return await serveShare(env, request, seg[2], seg[3]);
-
-      if (seg[1] === "dl" && seg[2] && seg[3]) return await download(env, request, seg[2], seg[3]);
-
-      return fail(env, "Introuvable", 404);
+      return fail(env, request, "Introuvable", 404);
     } catch (e) {
-      if (e instanceof Response) return e;
-      return fail(env, e.message || "Erreur interne", 500);
+      return fail(env, request, e.message || "Erreur interne", 500);
     }
   },
 };

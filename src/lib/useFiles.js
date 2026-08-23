@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { listFiles } from "./api.js";
+import { listFiles, counts, listFolders, profile } from "./api.js";
 import { load as cacheGet, save as cacheSet } from "./storage.js";
 
 /**
@@ -71,26 +71,35 @@ export function useFiles(cat, opts = {}) {
     append ? setMore(true) : setLoading(true);
     setError(null);
     try {
-      const r = await listFiles(cat, {
-        thumbs: opts.thumbs,
+      const r = await listFiles({
+        cat,
         folder: opts.folder,
         cursor: from,
         limit: opts.limit || 20,
       });
+      // compteurs, dossiers et quota ne changent pas d'une page a l'autre :
+      // on ne les redemande qu'au premier chargement
+      const extra = append ? null : await Promise.all([counts(), listFolders(), profile()]);
       setFiles(prev => append ? [...prev, ...decorate(r.files)] : decorate(r.files));
-      setMeta({
-        quota: r.quota, used: r.used, total: r.total,
-        counts: r.counts || {}, folders: r.folders || [], trashCount: r.trashCount || 0,
-      });
+      if (extra) {
+        const [c, folders, prof] = extra;
+        setMeta({
+          quota: prof?.quota || 0, used: prof?.used || 0, total: r.total,
+          counts: c, folders, trashCount: 0,
+        });
+      } else {
+        setMeta(m => ({ ...m, total: r.total }));
+      }
       setCursor(r.cursor);
       setDone(r.done);
       if (!append) {
-        const next = {
-          quota: r.quota, used: r.used, total: r.total,
-          counts: r.counts || {}, folders: r.folders || [], trashCount: r.trashCount || 0,
-        };
         // les vignettes gonflent le cache : on ne garde que la premiere page
-        cacheSet(key, { files: decorate(r.files).slice(0, 12), meta: next });
+        const [c, folders, prof] = extra;
+        cacheSet(key, {
+          files: decorate(r.files).slice(0, 12),
+          meta: { quota: prof?.quota || 0, used: prof?.used || 0, total: r.total,
+                  counts: c, folders, trashCount: 0 },
+        });
       }
     } catch (e) {
       setError(e.message);
