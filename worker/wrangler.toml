@@ -1,0 +1,14 @@
+name = "to-cloud-api"
+main = "src/index.js"
+compatibility_date = "2025-01-15"
+
+# Secrets (ne jamais les mettre ici) :
+#   npx wrangler secret put TELEGRAM_BOT_TOKENS   # token1,token2,token3
+#   npx wrangler secret put TELEGRAM_CHANNEL_ID   # -1001234567890
+#   npx wrangler secret put JWT_SECRET            # chaine aleatoire longue
+#   npx wrangler secret put SIGN_SECRET           # chaine aleatoire longue
+
+[vars]
+REGISTRY_MESSAGE_ID = "4"
+CHUNK_SIZE = "18874368"
+ALLOWED_ORIGIN = "https://to-cloud.pages.dev"
