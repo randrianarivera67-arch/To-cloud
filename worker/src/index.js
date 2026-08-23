@@ -50,22 +50,71 @@ const b64url = str => {
 };
 
 /**
- * Verifie la signature HS256 posee par Supabase.
+ * Verifie la signature du jeton Supabase.
  *
- * Sans cette verification, n'importe qui pourrait fabriquer un jeton et faire
- * deposer des fichiers sur le canal a nos frais.
+ * Les projets recents signent en ES256 avec une paire de cles : le secret
+ * partage n'existe plus. On recupere donc les cles publiques (JWKS) et on
+ * verifie avec celle dont l'identifiant figure dans l'en-tete du jeton.
+ *
+ * HS256 reste accepte pour les projets plus anciens, si SUPABASE_JWT_SECRET
+ * est fourni.
  */
+
+let JWKS = { keys: [], at: 0 };
+
+async function jwks(env) {
+  // les cles changent rarement : une heure de cache evite un appel par requete
+  if (JWKS.keys.length && Date.now() - JWKS.at < 3600_000) return JWKS.keys;
+
+  const res = await fetch(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`, {
+    headers: { apikey: env.SUPABASE_ANON_KEY },
+  });
+  if (!res.ok) throw new Error(`JWKS ${res.status}`);
+
+  const data = await res.json();
+  JWKS = { keys: data.keys || [], at: Date.now() };
+  return JWKS.keys;
+}
+
+const ALG = {
+  ES256: { name: "ECDSA", namedCurve: "P-256", hash: "SHA-256" },
+  RS256: { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+};
+
 async function verifyJWT(env, jwt) {
   if (!jwt || jwt.split(".").length !== 3) return null;
   const [head, body, mac] = jwt.split(".");
 
-  const key = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(env.SUPABASE_JWT_SECRET),
-    { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
-  );
-  const ok = await crypto.subtle.verify(
-    "HMAC", key, b64url(mac), new TextEncoder().encode(`${head}.${body}`)
-  );
+  let header;
+  try {
+    header = JSON.parse(new TextDecoder().decode(b64url(head)));
+  } catch {
+    return null;
+  }
+
+  const signed = new TextEncoder().encode(`${head}.${body}`);
+  let ok = false;
+
+  if (header.alg === "HS256") {
+    if (!env.SUPABASE_JWT_SECRET) return null;
+    const key = await crypto.subtle.importKey(
+      "raw", new TextEncoder().encode(env.SUPABASE_JWT_SECRET),
+      { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+    );
+    ok = await crypto.subtle.verify("HMAC", key, b64url(mac), signed);
+  } else {
+    const spec = ALG[header.alg];
+    if (!spec) return null;
+
+    const jwk = (await jwks(env)).find(k => k.kid === header.kid);
+    if (!jwk) return null;
+
+    const key = await crypto.subtle.importKey("jwk", jwk, spec, false, ["verify"]);
+    const params = header.alg === "ES256"
+      ? { name: "ECDSA", hash: "SHA-256" }
+      : { name: "RSASSA-PKCS1-v1_5" };
+    ok = await crypto.subtle.verify(params, key, b64url(mac), signed);
+  }
   if (!ok) return null;
 
   const claims = JSON.parse(new TextDecoder().decode(b64url(body)));
