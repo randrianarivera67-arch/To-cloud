@@ -3,7 +3,7 @@ import {
 } from "./telegram.js";
 import {
   hashPassword, verifyPassword, issueToken, readToken, bearer,
-  signChunk, checkChunk, userIdFor, newId,
+  signChunk, checkChunk, signShare, userIdFor, newId,
 } from "./auth.js";
 
 /* ── reponses ─────────────────────────────────────────────────────────── */
@@ -364,6 +364,80 @@ async function moveFile(env, request, id) {
   return json(env, { ok: true });
 }
 
+/* ── partage ── */
+
+/**
+ * Fabrique un lien public temporaire.
+ *
+ * L'identifiant du compte voyage dans l'URL : sans lui, impossible de
+ * retrouver l'index sans session. Le jeton signe empeche de deviner les liens
+ * des autres.
+ */
+async function makeShare(env, request, id) {
+  const s = await requireUser(env, request);
+  const index = await loadIndex(env, s.userId, s.email);
+  const file = index.files.find(f => f.id === id);
+  if (!file) return fail(env, "Fichier introuvable", 404);
+
+  const days = 7;
+  const exp = Date.now() + days * 86400_000;
+  const mac = await signShare(env, s.userId, id, exp);
+  const origin = new URL(request.url).origin;
+
+  return json(env, {
+    url: `${origin}/api/s/${s.userId}/${id}?e=${exp}&t=${mac}`,
+    expires: exp,
+    days,
+  });
+}
+
+/** Sert le fichier entier, morceaux recolles a la volee, sans session. */
+async function serveShare(env, request, userId, id) {
+  const q = new URL(request.url).searchParams;
+  const exp = Number(q.get("e") || 0);
+  const mac = q.get("t");
+
+  if (!exp || exp < Date.now()) return fail(env, "Lien expire", 410);
+  if (await signShare(env, userId, id, exp) !== mac) return fail(env, "Lien invalide", 403);
+
+  const index = await loadIndex(env, userId, null);
+  const file = index.files.find(f => f.id === id);
+  if (!file) return fail(env, "Fichier introuvable", 404);
+
+  const chunks = [...file.chunks].sort((a, b) => a.i - b.i);
+
+  // flux continu : le Worker ne garde jamais le fichier entier en memoire
+  const stream = new ReadableStream({
+    async start(ctrl) {
+      try {
+        for (const c of chunks) {
+          const url = await chunkUrl(env, c.f, c.b);
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`morceau ${c.i}`);
+          const reader = res.body.getReader();
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            ctrl.enqueue(value);
+          }
+        }
+        ctrl.close();
+      } catch (e) {
+        ctrl.error(e);
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "application/octet-stream",
+      "content-length": String(file.size),
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+      "cache-control": "private, max-age=600",
+    },
+  });
+}
+
 /* ── routeur ──────────────────────────────────────────────────────────── */
 
 export default {
@@ -403,9 +477,12 @@ export default {
       if (seg[1] === "file" && seg[2]) {
         if (seg[3] === "restore" && request.method === "POST") return await restore(env, request, seg[2]);
         if (seg[3] === "move"    && request.method === "POST") return await moveFile(env, request, seg[2]);
+        if (seg[3] === "share"   && request.method === "POST") return await makeShare(env, request, seg[2]);
         if (seg[3] === "urls" && request.method === "GET")    return await fileUrls(env, request, seg[2]);
         if (request.method === "DELETE")                      return await remove(env, request, seg[2]);
       }
+
+      if (seg[1] === "s" && seg[2] && seg[3]) return await serveShare(env, request, seg[2], seg[3]);
 
       if (seg[1] === "dl" && seg[2] && seg[3]) return await download(env, request, seg[2], seg[3]);
 

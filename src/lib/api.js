@@ -86,6 +86,7 @@ export const emptyTrash = () => call("/api/trash/all", { method: "DELETE" });
 export const addFolder = (name, cat) =>
   call("/api/folders", { method: "POST", body: JSON.stringify({ name, cat }) });
 export const dropFolder = id => call(`/api/folders/${id}`, { method: "DELETE" });
+export const shareFile = id => call(`/api/file/${id}/share`, { method: "POST", body: "{}" });
 export const moveFile = (id, folder) =>
   call(`/api/file/${id}/move`, { method: "POST", body: JSON.stringify({ folder }) });
 

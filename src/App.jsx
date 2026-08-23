@@ -5,7 +5,7 @@ import {
   FolderOpen, Menu, Sparkles, Settings, HelpCircle, Languages, Eye, Lock,
   Info, User, UserPlus, LogOut, ChevronRight, Wifi, Bell, ShieldCheck,
   Pencil, CircleAlert, CheckSquare, Cloud, Zap, ZoomIn, ZoomOut, Mail,
-  RotateCcw, Folder, FolderPlus, ChevronLeft
+  RotateCcw, Folder, FolderPlus, FolderInput, ChevronLeft, Link2
 } from "lucide-react";
 import Auth from "./Auth.jsx";
 import InstallBanner from "./InstallBanner.jsx";
@@ -13,7 +13,8 @@ import { load, save } from "./lib/storage.js";
 import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
   upload, downloadToDisk, removeFile, objectUrl, logout,
-  listTrash, restoreFile, purgeFile, emptyTrash, addFolder, dropFolder,
+  listTrash, restoreFile, purgeFile, emptyTrash,
+  addFolder, dropFolder, moveFile, shareFile,
 } from "./lib/api.js";
 import AudioPlayer from "./AudioPlayer.jsx";
 
@@ -64,6 +65,12 @@ const STR = {
     empty: "Cette catégorie est vide", emptySub: "Touchez le bouton d'envoi pour commencer.",
     uploading: "Envoi en cours", uploaded: "Envoi terminé", saved: "Enregistré",
     speed: "Débit", nodes: "Nœuds actifs", freeSpace: "libre",
+    defaultFolders: "Par catégorie", myFolders: "Mes dossiers",
+    move: "Déplacer", rootFolder: "Racine de la catégorie",
+    noFolderYet: "Aucun dossier dans cette catégorie. Créez-en un depuis l'écran Dossiers.",
+    copyLink: "Copier le lien", copyLinkSub: "Lien de téléchargement, valable 7 jours",
+    linkCopied: "Lien copié.", linkValid: "Valable {d} jours. Toute personne ayant ce lien peut télécharger le fichier.",
+    uploadHere: "Envoyer ici",
     trashEmpty: "Corbeille vide", trashEmptySub: "Les fichiers supprimés apparaîtront ici.",
     trashNote: "Ces fichiers occupent toujours votre espace. Videz la corbeille pour le libérer.",
     restore: "Restaurer", purge: "Supprimer définitivement", purgeAll: "Vider la corbeille",
@@ -118,6 +125,12 @@ const STR = {
     empty: "Mbola foana ity sokajy ity", emptySub: "Tsindrio ny bokotra fandefasana.",
     uploading: "Alefa ankehitriny", uploaded: "Vita ny fandefasana", saved: "Voatahiry",
     speed: "Hafainganana", nodes: "Node mavitrika", freeSpace: "malalaka",
+    defaultFolders: "Araka ny sokajy", myFolders: "Ny lahatahiriko",
+    move: "Afindra", rootFolder: "Fototry ny sokajy",
+    noFolderYet: "Tsy misy lahatahiry amin'ity sokajy ity. Mamorona iray ao amin'ny Lahatahiry.",
+    copyLink: "Adikao ny rohy", copyLinkSub: "Rohy fakàna, mandritra ny 7 andro",
+    linkCopied: "Voadika ny rohy.", linkValid: "Mandritra ny {d} andro. Izay rehetra manana io rohy io dia afaka maka ny rakitra.",
+    uploadHere: "Alefaso eto",
     trashEmpty: "Foana ny daba", trashEmptySub: "Ho hita eto ny rakitra voafafa.",
     trashNote: "Mbola mandany ny toeranao ireto rakitra ireto. Foano ny daba mba hanafaka azy.",
     restore: "Avereno", purge: "Fafao tanteraka", purgeAll: "Foano ny daba",
@@ -172,6 +185,12 @@ const STR = {
     empty: "This category is empty", emptySub: "Tap the upload button to start.",
     uploading: "Uploading", uploaded: "Upload complete", saved: "Stored",
     speed: "Throughput", nodes: "Active nodes", freeSpace: "free",
+    defaultFolders: "By category", myFolders: "My folders",
+    move: "Move", rootFolder: "Category root",
+    noFolderYet: "No folder in this category yet. Create one from the Folders screen.",
+    copyLink: "Copy link", copyLinkSub: "Download link, valid 7 days",
+    linkCopied: "Link copied.", linkValid: "Valid {d} days. Anyone with this link can download the file.",
+    uploadHere: "Upload here",
     trashEmpty: "Trash is empty", trashEmptySub: "Deleted files show up here.",
     trashNote: "These files still use your space. Empty the trash to free it.",
     restore: "Restore", purge: "Delete for good", purgeAll: "Empty trash",
@@ -742,7 +761,8 @@ function Drawer({ open, onClose, go, t }) {
 
 
 /* ─────────── file menu ─────────── */
-const FileMenu = ({ file, cat, onClose, onOpen, onDownload, onDelete, t }) => (
+const FileMenu = ({ file, cat, folders = [], onClose, onOpen, onDownload,
+                    onDelete, onMove, onShare, t }) => (
   <Sheet open={!!file} onClose={onClose}>
     {file && (
       <>
@@ -751,7 +771,7 @@ const FileMenu = ({ file, cat, onClose, onOpen, onDownload, onDelete, t }) => (
           <div className="min-w-0">
             <div style={{ color: T.text }} className="text-base font-semibold truncate">{file.name}</div>
             <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
-              {file.sizeLabel}{file.parts > 1 ? ` \u00b7 ${file.parts} ${t.parts}` : ""}
+              {file.sizeLabel}
             </div>
           </div>
         </div>
@@ -759,11 +779,39 @@ const FileMenu = ({ file, cat, onClose, onOpen, onDownload, onDelete, t }) => (
           <Row Icon={Eye} title={t.open} onClick={onOpen} />
           <Divider />
           <Row Icon={Download} title={t.download} onClick={onDownload} />
+          <Divider />
+          <Row Icon={Link2} title={t.copyLink} sub={t.copyLinkSub} onClick={onShare} />
+          <Divider />
+          <Row Icon={FolderInput} title={t.move} onClick={onMove}
+               right={<ChevronRight size={18} color={T.faint} />} />
         </Panel>
         <Panel className="mx-3 overflow-hidden">
           <Row Icon={Trash2} title={t.del} danger onClick={onDelete} />
         </Panel>
       </>
+    )}
+  </Sheet>
+);
+
+/* choix du dossier de destination */
+const MovePicker = ({ open, folders, cat, current, onPick, onClose, t }) => (
+  <Sheet open={open} onClose={onClose}>
+    <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
+        className="text-lg font-bold uppercase px-6 pb-4">{t.move}</h2>
+    <Panel className="mx-3 overflow-hidden">
+      <Row Icon={Folder} title={t.rootFolder} sub={t.cats[cat.key]}
+           onClick={() => onPick(null)}
+           right={!current ? <Check size={19} color={T.violet} /> : null} />
+      {folders.filter(f => f.cat === cat.key).map(f => (
+        <React.Fragment key={f.id}>
+          <Divider />
+          <Row Icon={Folder} title={f.name} onClick={() => onPick(f.id)}
+               right={current === f.id ? <Check size={19} color={T.violet} /> : null} />
+        </React.Fragment>
+      ))}
+    </Panel>
+    {folders.filter(f => f.cat === cat.key).length === 0 && (
+      <p style={{ color: T.faint }} className="text-sm px-6 pt-4 leading-snug">{t.noFolderYet}</p>
     )}
   </Sheet>
 );
@@ -793,39 +841,42 @@ const AccountSheet = ({ open, onClose, go, user, onSignOut, t }) => (
 );
 
 /* ─────────── upload ─────────── */
-function UploadSheet({ open, onClose, onGoCat, onDone, t }) {
-  const [pick, setPick] = useState(null);
+
+/**
+ * L'envoi part toujours d'un contexte : une categorie, eventuellement un
+ * dossier. Demander la categorie apres coup obligeait a deviner, et rendait
+ * impossible l'envoi direct dans un dossier.
+ */
+function UploadSheet({ open, cat, folder, onClose, onDone, t }) {
   const [file, setFile] = useState(null);
   const [done, setDone] = useState(0);
   const [total, setTotal] = useState(1);
   const [fin, setFin] = useState(false);
   const [err, setErr] = useState(null);
   const inputRef = useRef(null);
-  const wantedRef = useRef(null);
-
-  const cat = CATS.find(c => c.key === pick);
+  const askedRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
-      setPick(null); setFile(null); setDone(0); setTotal(1); setFin(false); setErr(null);
+      setFile(null); setDone(0); setTotal(1); setFin(false); setErr(null);
+      askedRef.current = false;
+      return;
     }
-  }, [open]);
-
-  function choose(key) {
-    wantedRef.current = key;
-    inputRef.current.accept = ACCEPT[key] || "*/*";
-    inputRef.current.value = "";
-    inputRef.current.click();
-  }
+    if (askedRef.current || !cat) return;
+    askedRef.current = true;
+    const el = inputRef.current;
+    if (!el) return;
+    el.accept = ACCEPT[cat.key] || "*/*";
+    el.value = "";
+    el.click();
+  }, [open, cat]);
 
   async function onFile(e) {
     const f = e.target.files?.[0];
-    if (!f) return;
-    const key = wantedRef.current;
-    setPick(key); setFile(f); setErr(null); setFin(false); setDone(0);
-
+    if (!f) { onClose(); return; }
+    setFile(f); setErr(null); setFin(false); setDone(0);
     try {
-      await upload(f, key, p => { setDone(p.done); setTotal(p.total); });
+      await upload(f, cat.key, p => { setDone(p.done); setTotal(p.total); }, folder);
       setFin(true);
       onDone?.();
     } catch (e2) {
@@ -833,44 +884,19 @@ function UploadSheet({ open, onClose, onGoCat, onDone, t }) {
     }
   }
 
-  if (!open) return null;
-  const accent = err ? T.rose : fin ? T.blue : (cat?.c || T.violet);
+  if (!open || !cat) return null;
+  const accent = err ? T.rose : fin ? T.blue : cat.c;
 
   return (
-    <div className="absolute inset-0 z-50 flex items-end"
-         style={{ background: "rgba(23,20,42,0.45)" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()}
-           style={{ background: T.card, border: `2px solid ${accent}`, borderBottom: "none" }}
-           className="w-full rounded-t-3xl p-6 pb-9">
+    <>
+      <input ref={inputRef} type="file" hidden onChange={onFile} />
+      {file && (
+        <div className="absolute inset-0 z-50 flex items-end"
+             style={{ background: "rgba(23,20,42,0.45)" }} onClick={fin ? onClose : undefined}>
+          <div onClick={e => e.stopPropagation()}
+               style={{ background: T.card, border: `2px solid ${accent}`, borderBottom: "none" }}
+               className="w-full rounded-t-3xl p-6 pb-9">
 
-        <input ref={inputRef} type="file" hidden onChange={onFile} />
-
-        {!file && (
-          <>
-            <div className="flex items-center justify-between mb-2">
-              <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
-                  className="text-xl font-bold uppercase">{t.chooseCat}</h2>
-              <button onClick={onClose} aria-label="Fermer"><X size={24} color={T.mute} /></button>
-            </div>
-            <p style={{ color: T.mute }} className="text-sm mb-5 leading-snug">{t.chooseCatSub}</p>
-            <div className="grid grid-cols-3 gap-3">
-              {CATS.map(c => (
-                <button key={c.key} onClick={() => choose(c.key)}
-                  style={{ background: T.card, border: `2px solid ${c.c}`, boxShadow: halo(c.c) }}
-                  className="flex flex-col items-center gap-2.5 py-4 rounded-2xl active:scale-95">
-                  <Tile c={c.c} bg={c.bg} Icon={c.Icon} size={46} icon={22} />
-                  <span style={{ color: T.text }}
-                        className="text-xs font-semibold text-center leading-tight px-1">
-                    {t.cats[c.key]}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-
-        {file && (
-          <>
             <div className="flex items-center justify-between mb-5">
               <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
                   className="text-xl font-bold uppercase">
@@ -884,7 +910,7 @@ function UploadSheet({ open, onClose, onGoCat, onDone, t }) {
               <div className="min-w-0 flex-1">
                 <div style={{ color: T.text }} className="text-base truncate">{file.name}</div>
                 <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
-                  {humanSize(file.size)}{total > 1 ? ` · ${total} ${t.parts}` : ""}
+                  {humanSize(file.size)}
                 </div>
               </div>
             </div>
@@ -898,30 +924,20 @@ function UploadSheet({ open, onClose, onGoCat, onDone, t }) {
             </div>
 
             {err ? (
-              <p style={{ color: T.rose }} className="text-sm mb-4">{err}</p>
+              <p style={{ color: T.rose }} className="text-sm">{err}</p>
             ) : (
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between">
                 <span style={{ color: fin ? T.blue : T.mute, fontFamily: MONO }} className="text-xs">
                   {fin ? t.saved.toUpperCase()
-                       : `${String(Math.round(done / total * 100)).padStart(2, "0")}% · ${done}/${total}`}
+                       : `${String(Math.round(done / total * 100)).padStart(2, "0")}%`}
                 </span>
                 {fin && <Check size={20} color={T.blue} />}
               </div>
             )}
-
-            {fin && (
-              <button onClick={() => { onClose(); onGoCat(cat); }} style={{ background: cat.c }}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-full active:opacity-80">
-                <span className="text-base font-semibold text-white">
-                  {t.savedIn} {t.cats[cat.key]}
-                </span>
-                <ChevronRight size={20} color="#FFFFFF" />
-              </button>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1140,6 +1156,37 @@ function FoldersView({ onBack, onOpenFolder, t }) {
 
       <p style={{ color: T.mute }} className="text-sm px-6 pb-5 leading-snug">{t.foldersNote}</p>
 
+      <div className="flex items-center gap-3 px-6 pb-2">
+        <span style={{ color: T.mute, fontFamily: DISPLAY, letterSpacing: "0.14em" }}
+              className="text-xs font-bold uppercase">{t.defaultFolders}</span>
+        <span style={{ background: T.line }} className="flex-1 h-px" />
+      </div>
+      <Panel className="mx-3 overflow-hidden mb-6">
+        {CATS.map((c, i) => {
+          const n = meta.counts?.[c.key]?.n || 0;
+          return (
+            <button key={c.key} onClick={() => onOpenFolder(c, null)}
+                    style={{ borderTop: i ? `1px solid ${T.line}` : "none" }}
+                    className="w-full flex items-center gap-4 px-4 py-3.5 text-left active:opacity-60">
+              <Tile c={c.c} bg={c.bg} Icon={c.Icon} size={44} icon={21} />
+              <span className="min-w-0 flex-1">
+                <span style={{ color: T.text }} className="block text-base">{t.cats[c.key]}</span>
+                <span style={{ color: T.mute, fontFamily: MONO }} className="block text-xs mt-1">
+                  {n} {t.files}
+                </span>
+              </span>
+              <ChevronRight size={18} color={T.faint} />
+            </button>
+          );
+        })}
+      </Panel>
+
+      <div className="flex items-center gap-3 px-6 pb-2">
+        <span style={{ color: T.mute, fontFamily: DISPLAY, letterSpacing: "0.14em" }}
+              className="text-xs font-bold uppercase">{t.myFolders}</span>
+        <span style={{ background: T.line }} className="flex-1 h-px" />
+      </div>
+
       {!naming ? (
         <div className="px-3 mb-5">
           <button onClick={() => setNaming(true)}
@@ -1297,6 +1344,7 @@ function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang
   const [sel, setSel] = useState([]);
   const [menu, setMenu] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [moving, setMoving] = useState(null);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("recent");   // recent | name | size
   const [shown, setShown] = useState(PAGE);
@@ -1375,6 +1423,24 @@ function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang
       alert(e.message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function doMove(id, dest) {
+    setMoving(null);
+    setBusy(true);
+    try { await moveFile(id, dest); await refresh(); }
+    catch (e) { alert(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function doShare(f) {
+    try {
+      const r = await shareFile(f.id);
+      await navigator.clipboard?.writeText(r.url);
+      alert(`${t.linkCopied}\n\n${t.linkValid.replace("{d}", r.days)}`);
+    } catch (e) {
+      alert(e.message);
     }
   }
 
@@ -1561,10 +1627,30 @@ function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang
         </div>
       )}
 
-      <FileMenu file={menu} cat={cat} t={t} onClose={() => setMenu(null)}
+      <FileMenu file={menu} cat={cat} t={t} folders={meta.folders}
+                onClose={() => setMenu(null)}
                 onOpen={() => { const f = menu; setMenu(null); open(f); }}
                 onDownload={() => { const f = menu; setMenu(null); downloadToDisk(f.id); }}
+                onShare={() => { const f = menu; setMenu(null); doShare(f); }}
+                onMove={() => { const f = menu; setMenu(null); setMoving(f); }}
                 onDelete={() => { const f = menu; setMenu(null); wipe([f.id]); }} />
+
+      <MovePicker open={!!moving} folders={meta.folders} cat={cat} t={t}
+                  current={moving?.folder || null}
+                  onPick={dest => doMove(moving.id, dest)}
+                  onClose={() => setMoving(null)} />
+
+      <button onClick={() => setUp(true)}
+        style={{ background: `linear-gradient(145deg, ${cat.c}, ${T.violet})`,
+                 boxShadow: halo(cat.c) }}
+        className="fixed right-5 bottom-6 w-16 h-16 rounded-full flex items-center justify-center z-40 active:scale-95"
+        aria-label={t.uploadHere}>
+        <Upload size={26} color="#FFFFFF" strokeWidth={2.4} />
+      </button>
+
+      <UploadSheet open={up} cat={cat} folder={folder} t={t}
+                   onClose={() => setUp(false)}
+                   onDone={() => { setUp(false); refresh(); }} />
     </div>
   );
 }
@@ -1768,7 +1854,6 @@ export default function ToCloud() {
   const [cat, setCat] = useState(null);
   const [drawer, setDrawer] = useState(false);
   const [account, setAccount] = useState(false);
-  const [up, setUp] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [gallery, setGallery] = useState([]);
   const [folder, setFolder] = useState(null);
@@ -1847,21 +1932,10 @@ export default function ToCloud() {
         {view === "addAccount" && <AddAccountView onBack={home} user={user} t={t} />}
         </div>
 
-        <button onClick={() => setUp(true)}
-          style={{ background: `linear-gradient(145deg, ${T.blue}, ${T.violet})`,
-                   boxShadow: "0 8px 24px rgba(115,50,224,0.35)" }}
-          className="fixed right-5 bottom-28 w-16 h-16 rounded-full flex items-center justify-center z-40 active:scale-95"
-          aria-label={t.chooseCat}>
-          <Upload size={26} color="#FFFFFF" strokeWidth={2.4} />
-        </button>
-
         <Drawer open={drawer} onClose={() => setDrawer(false)} go={go} t={t} />
         <AccountSheet open={account} onClose={() => setAccount(false)} go={go}
                       user={user} onSignOut={signOut} t={t} />
         <InstallBanner lang={lang} />
-        <UploadSheet open={up} onClose={() => setUp(false)} t={t}
-                     onDone={() => setBump(b => b + 1)}
-                     onGoCat={c => { setCat(c); setView("cat"); }} />
         {viewing && (
           <Viewer file={viewing} cat={CATS.find(c => c.key === viewing.cat)}
                   siblings={gallery} onNavigate={setViewing}
