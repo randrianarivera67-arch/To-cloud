@@ -36,7 +36,7 @@ export function humanSize(bytes) {
   return `${v.toFixed(v >= 100 ? 0 : 1).replace(".", ",")} ${units[i]}`;
 }
 
-export function useFiles(cat) {
+export function useFiles(cat, opts = {}) {
   const [files, setFiles] = useState([]);
   const [quota, setQuota] = useState({ quota: 0, used: 0 });
   const [loading, setLoading] = useState(true);
@@ -46,7 +46,7 @@ export function useFiles(cat) {
     setLoading(true);
     setError(null);
     try {
-      const r = await listFiles(cat);
+      const r = await listFiles(cat, opts);
       setFiles(r.files.map(f => ({
         ...f,
         g: groupOf(f.created),
@@ -59,7 +59,7 @@ export function useFiles(cat) {
     } finally {
       setLoading(false);
     }
-  }, [cat]);
+  }, [cat, opts.thumbs]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

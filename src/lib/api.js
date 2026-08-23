@@ -65,7 +65,38 @@ export const me = () => call("/api/auth/me");
 
 /* ── fichiers ─────────────────────────────────────────────────────────── */
 
-export const listFiles = cat => call(`/api/files${cat ? `?cat=${cat}` : ""}`);
+export const listFiles = (cat, opts = {}) => {
+  const q = new URLSearchParams();
+  if (cat) q.set("cat", cat);
+  if (opts.thumbs) q.set("thumbs", "1");
+  const qs = q.toString();
+  return call(`/api/files${qs ? `?${qs}` : ""}`);
+};
+
+/**
+ * Vignette WebP generee dans le navigateur avant l'envoi.
+ * Une grille de 100 images charge alors ~400 Ko au lieu de plusieurs centaines
+ * de Mo. Retourne null si le fichier n'est pas une image lisible.
+ */
+async function makeThumb(file, max = 240) {
+  if (!file.type.startsWith("image/")) return null;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(bmp, 0, 0, w, h);
+    bmp.close?.();
+
+    const url = canvas.toDataURL("image/webp", 0.62);
+    return url.length > 60_000 ? canvas.toDataURL("image/jpeg", 0.5) : url;
+  } catch {
+    return null;
+  }
+}
 
 export const removeFile = id => call(`/api/file/${id}`, { method: "DELETE" });
 
@@ -92,9 +123,11 @@ export async function upload(file, cat, onProgress) {
     onProgress?.({ done: i + 1, total: parts, percent: Math.round((i + 1) / parts * 100) });
   }
 
+  const thumb = await makeThumb(file);
+
   return call("/api/upload/complete", {
     method: "POST",
-    body: JSON.stringify({ name: file.name, size: file.size, cat: init.cat, chunks }),
+    body: JSON.stringify({ name: file.name, size: file.size, cat: init.cat, chunks, thumb }),
   });
 }
 

@@ -98,12 +98,18 @@ async function me(env, request) {
 async function listFiles(env, request) {
   const s = await requireUser(env, request);
   const index = await loadIndex(env, s.userId, s.email);
-  const cat = new URL(request.url).searchParams.get("cat");
+  const q = new URL(request.url).searchParams;
+  const cat = q.get("cat");
+  const withThumbs = q.get("thumbs") === "1";
 
   const files = index.files
     .filter(f => !cat || f.cat === cat)
     .sort((a, b) => b.created - a.created)
-    .map(({ chunks, ...rest }) => ({ ...rest, parts: chunks.length }));
+    .map(({ chunks, thumb, ...rest }) => ({
+      ...rest,
+      parts: chunks.length,
+      ...(withThumbs && thumb ? { thumb } : {}),
+    }));
 
   return json(env, { files, quota: index.quota, used: index.used });
 }
@@ -144,7 +150,7 @@ async function uploadChunk(env, request) {
 
 async function uploadComplete(env, request) {
   const s = await requireUser(env, request);
-  const { name, size, cat, chunks } = await request.json();
+  const { name, size, cat, chunks, thumb } = await request.json();
   if (!Array.isArray(chunks) || !chunks.length) return fail(env, "Aucun morceau");
 
   const id = newId();
@@ -154,6 +160,9 @@ async function uploadComplete(env, request) {
     size,
     cat: categorize(name, cat),
     created: Date.now(),
+    // vignette WebP ~4 Ko generee par le navigateur : evite de telecharger
+    // l'image entiere juste pour peupler une grille
+    ...(thumb ? { thumb } : {}),
     chunks: chunks
       .sort((a, b) => a.idx - b.idx)
       .map(c => ({ i: c.idx, f: c.file_id, m: c.message_id, b: c.bot, s: c.size })),
