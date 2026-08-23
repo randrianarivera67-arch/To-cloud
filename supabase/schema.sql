@@ -1,6 +1,9 @@
 -- To-cloud — schema Postgres
 -- A coller dans Supabase → SQL Editor → Run.
 --
+-- Le script peut etre relance sans risque : chaque objet est cree seulement
+-- s'il manque, et les regles sont retirees avant d'etre reposees.
+--
 -- Toute la protection est ici, pas dans le code applicatif : meme si le Worker
 -- ou le client comporte un bug, la base refuse de rendre les lignes d'autrui.
 
@@ -16,9 +19,11 @@ create table if not exists profiles (
 
 alter table profiles enable row level security;
 
+drop policy if exists "profil visible par son proprietaire" on profiles;
 create policy "profil visible par son proprietaire"
   on profiles for select using (auth.uid() = id);
 
+drop policy if exists "profil modifiable par son proprietaire" on profiles;
 create policy "profil modifiable par son proprietaire"
   on profiles for update using (auth.uid() = id);
 
@@ -50,6 +55,7 @@ create index if not exists folders_user_idx on folders (user_id, created_at desc
 
 alter table folders enable row level security;
 
+drop policy if exists "dossiers du proprietaire" on folders;
 create policy "dossiers du proprietaire"
   on folders for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
@@ -74,6 +80,7 @@ create index if not exists files_name_idx    on files using gin (to_tsvector('si
 
 alter table files enable row level security;
 
+drop policy if exists "fichiers du proprietaire" on files;
 create policy "fichiers du proprietaire"
   on files for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
@@ -93,6 +100,7 @@ alter table chunks enable row level security;
 
 -- un morceau suit le sort de son fichier : c'est ce qui empeche d'aller
 -- chercher les morceaux de quelqu'un d'autre en devinant un identifiant
+drop policy if exists "morceaux du proprietaire" on chunks;
 create policy "morceaux du proprietaire"
   on chunks for all
   using (exists (select 1 from files f where f.id = chunks.file_id and f.user_id = auth.uid()))
@@ -132,6 +140,7 @@ create index if not exists shares_file_idx on shares (file_id);
 
 alter table shares enable row level security;
 
+drop policy if exists "partages du proprietaire" on shares;
 create policy "partages du proprietaire"
   on shares for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
