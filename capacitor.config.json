@@ -1,0 +1,8 @@
+{
+  "appId": "mg.tocloud.app",
+  "appName": "To-cloud",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false
+  }
+}
