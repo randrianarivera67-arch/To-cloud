@@ -8,6 +8,8 @@ compatibility_date = "2025-01-15"
 #   npx wrangler secret put JWT_SECRET            # chaine aleatoire longue
 #   npx wrangler secret put SIGN_SECRET           # chaine aleatoire longue
 
+keep_vars = true
+
 [vars]
 REGISTRY_MESSAGE_ID = "4"
 CHUNK_SIZE = "18874368"
