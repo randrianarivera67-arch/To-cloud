@@ -1003,7 +1003,8 @@ function TrashView({ onBack, t }) {
     setLoading(true); setError(null);
     try {
       const r = await listTrash();
-      setFiles(r.files.map(f => ({ ...f, sizeLabel: humanSize(f.size) })));
+      const list = Array.isArray(r) ? r : (r?.files || []);
+      setFiles(list.map(f => ({ ...f, sizeLabel: humanSize(f.size) })));
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }, []);
@@ -2134,32 +2135,40 @@ export default function ToCloud() {
   const go = v => { setDrawer(false); setView(v); };
   const home = () => { setView("home"); setCat(null); setFolder(null); };
 
-  /* Chaque ecran empile une entree d'historique. Sans cela, le bouton retour
-     du telephone ferme le site des le premier appui. */
-  const depth = useRef(0);
-  useEffect(() => {
-    const layers =
-      (viewing ? 1 : 0) + (audio ? 1 : 0) + (drawer ? 1 : 0) +
-      (account ? 1 : 0) + (view !== "home" ? 1 : 0);
+  /**
+   * Bouton retour du telephone.
+   *
+   * On garde en permanence une entree d'historique « de reserve ». Le retour la
+   * consomme, on referme alors l'ecran du dessus et on en repose une aussitot.
+   * Sans cette reserve, le premier appui fermerait l'application.
+   */
+  const layers = { viewing, audio, account, drawer, view, folder };
+  const layersRef = useRef(layers);
+  layersRef.current = layers;
 
-    if (layers > depth.current) window.history.pushState({ tc: layers }, "");
-    depth.current = layers;
-  }, [view, viewing, audio, drawer, account]);
-
   useEffect(() => {
-    const back = () => {
-      if (viewing) return setViewing(null);
-      if (audio) return setAudio(null);
-      if (account) return setAccount(false);
-      if (drawer) return setDrawer(false);
-      if (view === "folder") { setFolder(null); return setView("folders"); }
-      if (view !== "home") return home();
-      // deja a l'accueil : on laisse le navigateur reprendre la main
-      window.history.back();
+    window.history.pushState({ tc: true }, "");
+
+    const onPop = () => {
+      const L = layersRef.current;
+      let handled = true;
+
+      if (L.viewing) setViewing(null);
+      else if (L.audio) setAudio(null);
+      else if (L.account) setAccount(false);
+      else if (L.drawer) setDrawer(false);
+      else if (L.view === "folder") { setFolder(null); setView("folders"); }
+      else if (L.view === "language") setView("settings");
+      else if (L.view !== "home") { setView("home"); setCat(null); setFolder(null); }
+      else handled = false;   // deja a l'accueil : on laisse sortir
+
+      if (handled) window.history.pushState({ tc: true }, "");
     };
-    window.addEventListener("popstate", back);
-    return () => window.removeEventListener("popstate", back);
-  }, [view, viewing, audio, drawer, account, folder]);
+
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
 
   function pickLang(code) {
     setLang(code);
