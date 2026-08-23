@@ -15,7 +15,7 @@ import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
   upload, download, downloadToDisk, removeFile, objectUrl, logout, categorize,
   listTrash, restoreFile, purgeFile, emptyTrash,
-  addFolder, dropFolder, moveFile, shareFile,
+  addFolder, dropFolder, moveFile, shareFile, folderCounts,
 } from "./lib/api.js";
 import AudioPlayer from "./AudioPlayer.jsx";
 import DocViewer from "./DocViewer.jsx";
@@ -84,7 +84,7 @@ const STR = {
     restore: "Restaurer", purge: "Supprimer définitivement", purgeAll: "Vider la corbeille",
     purgeAllConfirm: "Supprimer définitivement tous les fichiers de la corbeille ?",
     folders: "Dossiers", openFolders: "Parcourir les dossiers",
-    foldersNote: "Rangez vos fichiers par dossier, à l'intérieur d'une catégorie.",
+    foldersNote: "Un dossier accepte tous les types de fichiers ; ils restent visibles dans leur catégorie.",
     newFolder: "Nouveau dossier", folderName: "Nom du dossier",
     noFolder: "Aucun dossier", noFolderSub: "Créez-en un pour organiser vos fichiers.",
     dropFolderConfirm: "Supprimer ce dossier ? Les fichiers seront conservés.",
@@ -149,7 +149,7 @@ const STR = {
     restore: "Avereno", purge: "Fafao tanteraka", purgeAll: "Foano ny daba",
     purgeAllConfirm: "Hofafana tanteraka ny rakitra rehetra ao amin'ny daba?",
     folders: "Lahatahiry", openFolders: "Hijery ny lahatahiry",
-    foldersNote: "Alamino amin'ny lahatahiry ny rakitrao, ao anatin'ny sokajy iray.",
+    foldersNote: "Mandray karazan-drakitra rehetra ny lahatahiry; mbola hita ao amin'ny sokajiny ihany izy ireo.",
     newFolder: "Lahatahiry vaovao", folderName: "Anaran'ny lahatahiry",
     noFolder: "Tsy misy lahatahiry", noFolderSub: "Mamorona iray mba handaminana ny rakitrao.",
     dropFolderConfirm: "Hofafana ity lahatahiry ity? Hotazonina ny rakitra.",
@@ -214,7 +214,7 @@ const STR = {
     restore: "Restore", purge: "Delete for good", purgeAll: "Empty trash",
     purgeAllConfirm: "Permanently delete everything in the trash?",
     folders: "Folders", openFolders: "Browse folders",
-    foldersNote: "Sort your files into folders inside a category.",
+    foldersNote: "A folder takes any file type; files still appear in their category.",
     newFolder: "New folder", folderName: "Folder name",
     noFolder: "No folders yet", noFolderSub: "Create one to organise your files.",
     dropFolderConfirm: "Delete this folder? The files are kept.",
@@ -1084,11 +1084,14 @@ function FoldersView({ onBack, onOpenFolder, onOpenCat, t }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const counts = useMemo(() => {
-    const m = {};
-    files.forEach(f => { if (f.folder) m[f.folder] = (m[f.folder] || 0) + 1; });
-    return m;
-  }, [files]);
+  const [counts, setCounts] = useState({});
+  useEffect(() => {
+    let dead = false;
+    folderCounts()
+      .then(m => { if (!dead) setCounts(m); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [meta.folders.length]);
 
   async function create() {
     if (!name.trim()) return;

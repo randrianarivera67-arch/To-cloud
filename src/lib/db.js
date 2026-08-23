@@ -107,6 +107,26 @@ export async function counts() {
   return Object.fromEntries(data.map(r => [r.cat, { n: r.n, bytes: Number(r.bytes) }]));
 }
 
+/**
+ * Nombre de fichiers par dossier.
+ *
+ * Compter a partir de la premiere page des fichiers donnait toujours zero :
+ * la page ne contient qu'une poignee de lignes, et rarement celles du dossier
+ * regarde. On demande donc le decompte a la base.
+ */
+export async function folderCounts() {
+  const { data, error } = await supabase
+    .from("files")
+    .select("folder_id")
+    .is("deleted_at", null)
+    .not("folder_id", "is", null);
+  if (error) throw new Error(error.message);
+
+  const m = {};
+  data.forEach(r => { m[r.folder_id] = (m[r.folder_id] || 0) + 1; });
+  return m;
+}
+
 export async function listFolders() {
   const { data, error } = await supabase
     .from("folders").select("id, name, created_at").order("created_at", { ascending: false });
