@@ -1,16 +1,20 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Search, Image, Film, Music, FileText, Package, Box, Upload, Check, X,
   ArrowLeft, MoreVertical, Download, Share2, Trash2, SlidersHorizontal,
   FolderOpen, Menu, Sparkles, Settings, HelpCircle, Languages, Eye, Lock,
   Info, User, UserPlus, LogOut, ChevronRight, Wifi, Bell, ShieldCheck,
-  Pencil, CircleAlert, CheckSquare, Cloud, Zap, ZoomIn, ZoomOut, Mail, Grid3x3, List
+  Pencil, CircleAlert, CheckSquare, Cloud, Zap, ZoomIn, ZoomOut, Mail,
+  RotateCcw, Folder, FolderPlus, ChevronLeft
 } from "lucide-react";
 import Auth from "./Auth.jsx";
 import InstallBanner from "./InstallBanner.jsx";
 import { load, save } from "./lib/storage.js";
 import { useFiles, humanSize } from "./lib/useFiles.js";
-import { upload, downloadToDisk, removeFile, objectUrl, logout } from "./lib/api.js";
+import {
+  upload, downloadToDisk, removeFile, objectUrl, logout,
+  listTrash, restoreFile, purgeFile, emptyTrash, addFolder, dropFolder,
+} from "./lib/api.js";
 import AudioPlayer from "./AudioPlayer.jsx";
 
 /* ─────────── tokens ─────────── */
@@ -60,6 +64,16 @@ const STR = {
     empty: "Cette catégorie est vide", emptySub: "Touchez le bouton d'envoi pour commencer.",
     uploading: "Envoi en cours", uploaded: "Envoi terminé", saved: "Enregistré",
     speed: "Débit", nodes: "Nœuds actifs", freeSpace: "libre",
+    trashEmpty: "Corbeille vide", trashEmptySub: "Les fichiers supprimés apparaîtront ici.",
+    trashNote: "Ces fichiers occupent toujours votre espace. Videz la corbeille pour le libérer.",
+    restore: "Restaurer", purge: "Supprimer définitivement", purgeAll: "Vider la corbeille",
+    purgeAllConfirm: "Supprimer définitivement tous les fichiers de la corbeille ?",
+    folders: "Dossiers", openFolders: "Parcourir les dossiers",
+    foldersNote: "Rangez vos fichiers par dossier, à l'intérieur d'une catégorie.",
+    newFolder: "Nouveau dossier", folderName: "Nom du dossier",
+    noFolder: "Aucun dossier", noFolderSub: "Créez-en un pour organiser vos fichiers.",
+    dropFolderConfirm: "Supprimer ce dossier ? Les fichiers seront conservés.",
+    create: "Créer", cancel: "Annuler",
     sortRecent: "Récents", sortName: "Nom", sortSize: "Taille",
     noMatch: "Aucun résultat", noMatchSub: "Essayez un autre mot.",
     searchHint: "Tapez pour chercher dans tous vos fichiers.",
@@ -80,7 +94,7 @@ const STR = {
     prefs: "Préférences", about: "À propos",
     wifiOnly: "Wi-Fi uniquement", wifiOnlySub: "Avertir avant un envoi volumineux en données mobiles",
     notif: "Notifications", notifSub: "Prévenir à la fin de chaque envoi",
-    storedOn: "Vos fichiers", storedOnSub: "Découpés en parties de 18 Mo et stockés sur un canal privé",
+    storedOn: "Vos fichiers", storedOnSub: "Chiffrés en transit et stockés sur un espace privé",
     prefsNote: "Ces préférences sont gardées sur cet appareil uniquement.",
     holdToSelect: "Maintenez appuyé pour sélectionner",
     loading: "Chargement…", loadFailed: "Impossible d'ouvrir ce fichier",
@@ -104,6 +118,16 @@ const STR = {
     empty: "Mbola foana ity sokajy ity", emptySub: "Tsindrio ny bokotra fandefasana.",
     uploading: "Alefa ankehitriny", uploaded: "Vita ny fandefasana", saved: "Voatahiry",
     speed: "Hafainganana", nodes: "Node mavitrika", freeSpace: "malalaka",
+    trashEmpty: "Foana ny daba", trashEmptySub: "Ho hita eto ny rakitra voafafa.",
+    trashNote: "Mbola mandany ny toeranao ireto rakitra ireto. Foano ny daba mba hanafaka azy.",
+    restore: "Avereno", purge: "Fafao tanteraka", purgeAll: "Foano ny daba",
+    purgeAllConfirm: "Hofafana tanteraka ny rakitra rehetra ao amin'ny daba?",
+    folders: "Lahatahiry", openFolders: "Hijery ny lahatahiry",
+    foldersNote: "Alamino amin'ny lahatahiry ny rakitrao, ao anatin'ny sokajy iray.",
+    newFolder: "Lahatahiry vaovao", folderName: "Anaran'ny lahatahiry",
+    noFolder: "Tsy misy lahatahiry", noFolderSub: "Mamorona iray mba handaminana ny rakitrao.",
+    dropFolderConfirm: "Hofafana ity lahatahiry ity? Hotazonina ny rakitra.",
+    create: "Foronina", cancel: "Aoka",
     sortRecent: "Vaovao", sortName: "Anarana", sortSize: "Habe",
     noMatch: "Tsy misy valiny", noMatchSub: "Andramo teny hafa.",
     searchHint: "Soraty mba hitady ao amin'ny rakitrao rehetra.",
@@ -124,7 +148,7 @@ const STR = {
     prefs: "Safidy", about: "Momba",
     wifiOnly: "Wi-Fi ihany", wifiOnlySub: "Mampitandrina alohan'ny fandefasana lehibe amin'ny data",
     notif: "Fampandrenesana", notifSub: "Mampahafantatra rehefa vita ny fandefasana",
-    storedOn: "Ny rakitrao", storedOnSub: "Zaraina 18 Mo dia tehirizina ao amin'ny canal manokana",
+    storedOn: "Ny rakitrao", storedOnSub: "Voaaro mandritra ny fandefasana, tehirizina amin'ny toerana manokana",
     prefsNote: "Ao amin'ity finday ity ihany no itehirizana ireo safidy ireo.",
     holdToSelect: "Tazomy mba hifidy",
     loading: "Miandry…", loadFailed: "Tsy afaka nanokatra ity rakitra ity",
@@ -148,6 +172,16 @@ const STR = {
     empty: "This category is empty", emptySub: "Tap the upload button to start.",
     uploading: "Uploading", uploaded: "Upload complete", saved: "Stored",
     speed: "Throughput", nodes: "Active nodes", freeSpace: "free",
+    trashEmpty: "Trash is empty", trashEmptySub: "Deleted files show up here.",
+    trashNote: "These files still use your space. Empty the trash to free it.",
+    restore: "Restore", purge: "Delete for good", purgeAll: "Empty trash",
+    purgeAllConfirm: "Permanently delete everything in the trash?",
+    folders: "Folders", openFolders: "Browse folders",
+    foldersNote: "Sort your files into folders inside a category.",
+    newFolder: "New folder", folderName: "Folder name",
+    noFolder: "No folders yet", noFolderSub: "Create one to organise your files.",
+    dropFolderConfirm: "Delete this folder? The files are kept.",
+    create: "Create", cancel: "Cancel",
     sortRecent: "Recent", sortName: "Name", sortSize: "Size",
     noMatch: "No results", noMatchSub: "Try another word.",
     searchHint: "Type to search across all your files.",
@@ -168,7 +202,7 @@ const STR = {
     prefs: "Preferences", about: "About",
     wifiOnly: "Wi-Fi only", wifiOnlySub: "Warn before a large upload on mobile data",
     notif: "Notifications", notifSub: "Tell me when an upload finishes",
-    storedOn: "Your files", storedOnSub: "Split into 18 MB parts, stored on a private channel",
+    storedOn: "Your files", storedOnSub: "Encrypted in transit, stored in a private space",
     prefsNote: "These preferences stay on this device only.",
     holdToSelect: "Press and hold to select",
     loading: "Loading…", loadFailed: "Could not open this file",
@@ -286,7 +320,7 @@ const GlowFrame = ({ c, children, className = "", radius = 24, pad = 2, speed = 
   return (
     <div ref={ref} className={className}
          style={{ opacity: on ? 1 : 0,
-                  transform: on ? "translateY(0) scale(1)" : "translateY(28px) scale(0.985)",
+                  transform: on ? "translateY(0)" : "translateY(18px)",
                   transition: `opacity 560ms ${EASE} ${delay}ms, transform 560ms ${EASE} ${delay}ms`,
                   willChange: on ? "auto" : "opacity, transform" }}>
       {children}
@@ -429,7 +463,7 @@ const Backdrop = () => (
 );
 
 /* ─────────── media viewer ─────────── */
-function Viewer({ file, cat, onClose, t }) {
+function Viewer({ file, cat, siblings = [], onNavigate, onClose, t }) {
   const [src, setSrc] = useState(null);
   const [load, setLoad] = useState(0);
   const [err, setErr] = useState(null);
@@ -513,7 +547,7 @@ function Viewer({ file, cat, onClose, t }) {
             <>
               <p style={{ color: dark ? "rgba(255,255,255,0.6)" : T.mute, fontFamily: MONO }}
                  className="text-xs mb-5">
-                {load} / {file.parts} × 18 Mo
+                {load} / {file.parts}
               </p>
               <div style={{ background: "rgba(128,128,160,0.28)" }}
                    className="w-full max-w-xs h-2 rounded-full overflow-hidden">
@@ -528,12 +562,53 @@ function Viewer({ file, cat, onClose, t }) {
   }
 
   if (k === "sary") {
+    const at = siblings.findIndex(f => f.id === file.id);
+    const goTo = d => {
+      const n = at + d;
+      if (n >= 0 && n < siblings.length) onNavigate?.(siblings[n]);
+    };
+    /* glissement horizontal : on ne navigue que si le geste est franchement
+       lateral, sinon un simple defilement changerait d'image */
+    const swipe = { x: 0, y: 0 };
+    const onDown = e => { swipe.x = e.clientX; swipe.y = e.clientY; };
+    const onUp = e => {
+      const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
+      if (zoom === 1 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.6) {
+        goTo(dx < 0 ? 1 : -1);
+      }
+    };
+
     return (
       <Chrome>
-        <div className="flex-1 flex items-center justify-center overflow-auto px-4">
-          <img src={src} alt={file.name}
+        <div className="flex-1 flex items-center justify-center overflow-hidden px-4 relative"
+             onPointerDown={onDown} onPointerUp={onUp}
+             style={{ touchAction: zoom === 1 ? "pan-y" : "auto" }}>
+          <img src={src} alt={file.name} draggable={false}
                style={{ transform: `scale(${zoom})`, transition: "transform 180ms ease" }}
-               className="max-w-full max-h-full object-contain rounded-xl" />
+               className="max-w-full max-h-full object-contain rounded-xl select-none" />
+
+          {at > 0 && (
+            <button onClick={() => goTo(-1)} aria-label={t.prev}
+                    style={{ background: "rgba(0,0,0,0.35)" }}
+                    className="absolute left-2 w-11 h-11 rounded-full flex items-center justify-center">
+              <ChevronLeft size={24} color="#FFFFFF" />
+            </button>
+          )}
+          {at >= 0 && at < siblings.length - 1 && (
+            <button onClick={() => goTo(1)} aria-label={t.next}
+                    style={{ background: "rgba(0,0,0,0.35)" }}
+                    className="absolute right-2 w-11 h-11 rounded-full flex items-center justify-center">
+              <ChevronRight size={24} color="#FFFFFF" />
+            </button>
+          )}
+
+          {siblings.length > 1 && (
+            <span style={{ color: "rgba(255,255,255,0.75)", fontFamily: MONO,
+                           background: "rgba(0,0,0,0.35)" }}
+                  className="absolute bottom-3 text-xs px-3 py-1 rounded-full">
+              {at + 1} / {siblings.length}
+            </span>
+          )}
         </div>
         <div className="flex items-center justify-center gap-6 py-6 shrink-0">
           <button onClick={() => setZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))}
@@ -809,7 +884,7 @@ function UploadSheet({ open, onClose, onGoCat, onDone, t }) {
               <div className="min-w-0 flex-1">
                 <div style={{ color: T.text }} className="text-base truncate">{file.name}</div>
                 <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
-                  {humanSize(file.size)}{total > 1 ? ` · ${total} × 18 Mo` : ""}
+                  {humanSize(file.size)}{total > 1 ? ` · ${total} ${t.parts}` : ""}
                 </div>
               </div>
             </div>
@@ -928,16 +1003,232 @@ const CleanView = ({ onBack, t }) => (
   </div>
 );
 
-const TrashView = ({ onBack, t }) => (
-  <div className="pb-10">
-    <TopBar title={t.trash} onBack={onBack} />
-    <Panel className="mx-3 p-8 text-center">
-      <Trash2 size={38} color={T.faint} strokeWidth={1.6} className="mx-auto mb-4" />
-      <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.soon}</p>
-      <p style={{ color: T.mute }} className="text-sm leading-snug">{t.trashSoon}</p>
-    </Panel>
-  </div>
-);
+/* ─────────── trash ─────────── */
+function TrashView({ onBack, t }) {
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await listTrash();
+      setFiles(r.files.map(f => ({ ...f, sizeLabel: humanSize(f.size) })));
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function act(fn) {
+    setBusy(true);
+    try { await fn(); await refresh(); }
+    catch (e) { alert(e.message); }
+    finally { setBusy(false); }
+  }
+
+  const totalSize = files.reduce((n, f) => n + f.size, 0);
+
+  return (
+    <div className="pb-10">
+      <TopBar title={t.trash} onBack={onBack} />
+
+      {loading && (
+        <p style={{ color: T.mute }} className="text-sm px-6 py-10 text-center">{t.loading}</p>
+      )}
+
+      {error && !loading && (
+        <Panel className="mx-3 p-6 text-center">
+          <CircleAlert size={32} color={T.rose} strokeWidth={1.8} className="mx-auto mb-3" />
+          <p style={{ color: T.mute }} className="text-sm">{error}</p>
+        </Panel>
+      )}
+
+      {!loading && !error && files.length === 0 && (
+        <Panel className="mx-3 p-8 text-center">
+          <Trash2 size={38} color={T.faint} strokeWidth={1.6} className="mx-auto mb-4" />
+          <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.trashEmpty}</p>
+          <p style={{ color: T.mute }} className="text-sm">{t.trashEmptySub}</p>
+        </Panel>
+      )}
+
+      {files.length > 0 && (
+        <>
+          <p style={{ color: T.mute }} className="text-sm px-6 pb-4 leading-snug">
+            {t.trashNote}
+          </p>
+
+          <Panel className="mx-3 overflow-hidden mb-3">
+            {files.map((f, i) => {
+              const c = CATS.find(x => x.key === f.cat) || CATS[5];
+              return (
+                <div key={f.id} style={{ borderTop: i ? `1px solid ${T.line}` : "none" }}
+                     className="flex items-center gap-3 px-4 py-3.5">
+                  <Tile c={c.c} bg={c.bg} Icon={c.Icon} size={44} icon={21} />
+                  <div className="min-w-0 flex-1">
+                    <div style={{ color: T.text }} className="text-base truncate">{f.name}</div>
+                    <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
+                      {f.sizeLabel}
+                    </div>
+                  </div>
+                  <button onClick={() => act(() => restoreFile(f.id))} disabled={busy}
+                          aria-label={t.restore} className="p-2">
+                    <RotateCcw size={20} color={T.blue} />
+                  </button>
+                  <button onClick={() => act(() => purgeFile(f.id))} disabled={busy}
+                          aria-label={t.purge} className="p-2">
+                    <Trash2 size={20} color={T.rose} />
+                  </button>
+                </div>
+              );
+            })}
+          </Panel>
+
+          <div className="px-3">
+            <button onClick={() => {
+                      if (confirm(t.purgeAllConfirm)) act(() => emptyTrash());
+                    }}
+                    disabled={busy}
+                    style={{ border: `2px solid ${T.rose}`, color: T.rose }}
+                    className="w-full py-3.5 rounded-full text-base font-semibold active:opacity-70">
+              {t.purgeAll} · {humanSize(totalSize)}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─────────── folders ─────────── */
+function FoldersView({ onBack, onOpenFolder, t }) {
+  const { files, meta, loading, refresh } = useFiles(null, { limit: 60 });
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState("");
+  const [pickCat, setPickCat] = useState("hafa");
+  const [busy, setBusy] = useState(false);
+
+  const counts = useMemo(() => {
+    const m = {};
+    files.forEach(f => { if (f.folder) m[f.folder] = (m[f.folder] || 0) + 1; });
+    return m;
+  }, [files]);
+
+  async function create() {
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await addFolder(name.trim(), pickCat);
+      setName(""); setNaming(false);
+      await refresh();
+    } catch (e) { alert(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function remove(id) {
+    if (!confirm(t.dropFolderConfirm)) return;
+    setBusy(true);
+    try { await dropFolder(id); await refresh(); }
+    catch (e) { alert(e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="pb-10">
+      <TopBar title={t.folders} onBack={onBack} />
+
+      <p style={{ color: T.mute }} className="text-sm px-6 pb-5 leading-snug">{t.foldersNote}</p>
+
+      {!naming ? (
+        <div className="px-3 mb-5">
+          <button onClick={() => setNaming(true)}
+                  style={{ border: `2px dashed ${T.violet}`, color: T.violet }}
+                  className="w-full flex items-center justify-center gap-2.5 py-4 rounded-3xl active:opacity-70">
+            <FolderPlus size={21} color={T.violet} />
+            <span className="text-base font-semibold">{t.newFolder}</span>
+          </button>
+        </div>
+      ) : (
+        <Panel accent={T.violet} className="mx-3 p-5 mb-5">
+          <input value={name} onChange={e => setName(e.target.value)} autoFocus
+                 placeholder={t.folderName} maxLength={60}
+                 className="w-full bg-transparent outline-none text-base mb-4 pb-2"
+                 style={{ color: T.text, borderBottom: `1.5px solid ${T.line}` }} />
+
+          <div className="flex flex-wrap gap-2 mb-5">
+            {CATS.map(c => (
+              <button key={c.key} onClick={() => setPickCat(c.key)}
+                style={{
+                  background: pickCat === c.key ? c.bg : "transparent",
+                  border: `1.5px solid ${pickCat === c.key ? c.c : T.line}`,
+                  color: pickCat === c.key ? c.c : T.mute,
+                }}
+                className="text-xs font-semibold px-3 py-2 rounded-full">
+                {t.cats[c.key]}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => { setNaming(false); setName(""); }}
+                    style={{ border: `1.5px solid ${T.line}`, color: T.mute }}
+                    className="flex-1 py-3 rounded-full text-base font-semibold">
+              {t.cancel}
+            </button>
+            <button onClick={create} disabled={busy || !name.trim()}
+                    style={{ background: T.violet, opacity: name.trim() ? 1 : 0.5 }}
+                    className="flex-1 py-3 rounded-full text-base font-semibold text-white">
+              {t.create}
+            </button>
+          </div>
+        </Panel>
+      )}
+
+      {loading && (
+        <p style={{ color: T.mute }} className="text-sm px-6 py-8 text-center">{t.loading}</p>
+      )}
+
+      {!loading && meta.folders.length === 0 && (
+        <Panel className="mx-3 p-8 text-center">
+          <FolderOpen size={38} color={T.faint} strokeWidth={1.6} className="mx-auto mb-4" />
+          <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.noFolder}</p>
+          <p style={{ color: T.mute }} className="text-sm">{t.noFolderSub}</p>
+        </Panel>
+      )}
+
+      {CATS.filter(c => meta.folders.some(f => f.cat === c.key)).map(c => (
+        <div key={c.key} className="mb-5">
+          <div className="flex items-center gap-3 px-6 pb-2">
+            <span style={{ color: c.c, fontFamily: DISPLAY, letterSpacing: "0.14em" }}
+                  className="text-xs font-bold uppercase">{t.cats[c.key]}</span>
+            <span style={{ background: T.line }} className="flex-1 h-px" />
+          </div>
+          <Panel className="mx-3 overflow-hidden">
+            {meta.folders.filter(f => f.cat === c.key).map((f, i) => (
+              <div key={f.id} style={{ borderTop: i ? `1px solid ${T.line}` : "none" }}
+                   className="flex items-center">
+                <button onClick={() => onOpenFolder(c, f)}
+                        className="flex items-center gap-4 pl-4 py-3.5 flex-1 min-w-0 text-left active:opacity-60">
+                  <Tile c={c.c} bg={c.bg} Icon={Folder} size={44} icon={21} />
+                  <span className="min-w-0 flex-1">
+                    <span style={{ color: T.text }} className="block text-base truncate">{f.name}</span>
+                    <span style={{ color: T.mute, fontFamily: MONO }} className="block text-xs mt-1">
+                      {counts[f.id] || 0} {t.files}
+                    </span>
+                  </span>
+                </button>
+                <button onClick={() => remove(f.id)} aria-label={t.del} className="px-4 py-5">
+                  <Trash2 size={19} color={T.faint} />
+                </button>
+              </div>
+            ))}
+          </Panel>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const AddAccountView = ({ onBack, user, t }) => (
   <div className="pb-10">
@@ -1002,7 +1293,7 @@ const SearchBar = ({ value, onChange, accent = T.violet, autoFocus, t }) => (
 /* ─────────── category ─────────── */
 const PAGE = 10;
 
-function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
+function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang }) {
   const [sel, setSel] = useState([]);
   const [menu, setMenu] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -1011,7 +1302,8 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
   const [shown, setShown] = useState(PAGE);
 
   const isGallery = cat.key === "sary";
-  const { files: raw, loading, error, refresh } = useFiles(cat.key, { thumbs: isGallery });
+  const { files: raw, meta, loading, more, done, error, refresh, loadMore } =
+    useFiles(cat.key, { thumbs: isGallery, folder, limit: isGallery ? 18 : 12 });
 
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -1021,21 +1313,19 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
     return out;
   }, [raw, q, sort]);
 
-  const visible = items.slice(0, shown);
-  const more = items.length > shown;
+  const visible = items;
 
-  useEffect(() => { setShown(PAGE); }, [q, sort, cat.key]);
-
-  /* charge la page suivante quand la sentinelle entre dans l'ecran */
+  /* la page suivante n'est demandee qu'au moment ou la sentinelle approche :
+     rien n'est telecharge tant que l'utilisateur ne descend pas */
   const tail = useRef(null);
   useEffect(() => {
-    if (!more || !tail.current) return;
+    if (done || !tail.current) return;
     const io = new IntersectionObserver(([e]) => {
-      if (e.isIntersecting) setShown(n => n + PAGE);
-    }, { rootMargin: "300px" });
+      if (e.isIntersecting) loadMore();
+    }, { rootMargin: "400px" });
     io.observe(tail.current);
     return () => io.disconnect();
-  }, [more, visible.length]);
+  }, [done, loadMore, visible.length]);
 
   const groups = useMemo(() => {
     const m = {}; visible.forEach(f => { (m[f.g] ||= []).push(f); }); return m;
@@ -1045,25 +1335,34 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
   const all = sel.length === items.length && items.length > 0;
   const toggle = id => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
   const label = GLABEL[lang] || GLABEL.fr;
-  const totalSize = items.reduce((n, f) => n + f.size, 0);
 
+  /* Appui long. Le moindre glissement annule : sans cela, un simple defilement
+     declenche la selection et la page semble sauter sous le doigt. */
   const holdRef = useRef(null);
   const firedRef = useRef(false);
-  const holdStart = id => {
+  const originRef = useRef(null);
+
+  const holdStart = (id, e) => {
     firedRef.current = false;
+    originRef.current = { x: e.clientX, y: e.clientY };
     holdRef.current = setTimeout(() => {
       firedRef.current = true;
       navigator.vibrate?.(18);
       setSel(s => (s.includes(id) ? s : [...s, id]));
-    }, 420);
+    }, 450);
   };
-  const holdEnd = () => clearTimeout(holdRef.current);
+  const holdMove = e => {
+    const o = originRef.current;
+    if (!o) return;
+    if (Math.abs(e.clientX - o.x) > 8 || Math.abs(e.clientY - o.y) > 8) holdEnd();
+  };
+  const holdEnd = () => { clearTimeout(holdRef.current); originRef.current = null; };
 
   const open = f => {
     if (firedRef.current) { firedRef.current = false; return; }
     if (mode) return toggle(f.id);
     if (cat.key === "feo") return onPlay(items, f.id);
-    onOpen(f);
+    onOpen(f, isGallery ? items : []);
   };
 
   async function wipe(ids) {
@@ -1080,12 +1379,13 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
   }
 
   const holdProps = f => ({
-    onPointerDown: () => holdStart(f.id),
+    onPointerDown: e => holdStart(f.id, e),
+    onPointerMove: holdMove,
     onPointerUp: holdEnd,
     onPointerLeave: holdEnd,
     onPointerCancel: holdEnd,
     onContextMenu: e => e.preventDefault(),
-    style: { touchAction: "manipulation" },
+    style: { touchAction: "pan-y", userSelect: "none", WebkitUserSelect: "none" },
   });
 
   return (
@@ -1125,9 +1425,11 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
             <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={62} icon={30} />
             <div className="min-w-0">
               <h1 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.02em" }}
-                  className="text-2xl font-bold uppercase">{t.cats[cat.key]}</h1>
+                  className="text-2xl font-bold uppercase truncate">
+                {folderName || t.cats[cat.key]}
+              </h1>
               <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
-                {items.length} {t.files}{items.length ? ` · ${humanSize(totalSize)}` : ""}
+                {meta.total} {t.files}
               </p>
             </div>
           </div>
@@ -1251,10 +1553,10 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
         </Reveal>
       ))}
 
-      {more && (
-        <div ref={tail} className="py-6 text-center">
+      {!done && !loading && (
+        <div ref={tail} className="py-8 text-center">
           <span style={{ color: T.faint, fontFamily: MONO }} className="text-xs">
-            {visible.length} / {items.length}
+            {more ? t.loading : `${visible.length} / ${meta.total}`}
           </span>
         </div>
       )}
@@ -1268,18 +1570,12 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
 }
 
 /* ─────────── home ─────────── */
-function HomeView({ onCat, onMenu, onAccount, onSearch, user, t }) {
-  const { files, quota, loading } = useFiles();
+function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, user, t }) {
+  const { meta, quota, loading } = useFiles(null, { limit: 1 });
 
-  const stats = useMemo(() => {
-    const m = {};
-    CATS.forEach(c => { m[c.key] = { n: 0, bytes: 0 }; });
-    files.forEach(f => {
-      const s = m[f.cat] || (m[f.cat] = { n: 0, bytes: 0 });
-      s.n += 1; s.bytes += f.size;
-    });
-    return m;
-  }, [files]);
+  /* les compteurs viennent du serveur : inutile de tirer tous les fichiers
+     pour savoir combien il y en a */
+  const stats = meta.counts || {};
 
   const totalGo = Math.max(1, Math.round(quota.quota / 1024 ** 3));
   const usedGo = (quota.used / 1024 ** 3).toFixed(quota.used < 1024 ** 3 ? 2 : 1).replace(".", ",");
@@ -1323,7 +1619,7 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, user, t }) {
 
       <Reveal delay={60}>
       <GlowFrame c={T.blue} className="mx-3 mb-8" speed={7}>
-      <div className="p-5">
+      <button onClick={onFolders} className="w-full p-5 text-left active:opacity-70">
         <div className="flex items-start justify-between mb-5">
           <div>
             <div style={{ color: T.faint, fontFamily: DISPLAY, letterSpacing: "0.18em", fontSize: 10 }}
@@ -1358,7 +1654,14 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, user, t }) {
             {freeGo} Go {t.freeSpace}
           </span>
         </div>
-      </div>
+
+        <div className="flex items-center gap-2 mt-5 pt-4"
+             style={{ borderTop: `1px solid ${T.line}` }}>
+          <Folder size={17} color={T.violet} />
+          <span style={{ color: T.violet }} className="text-sm font-semibold">{t.openFolders}</span>
+          <ChevronRight size={17} color={T.violet} className="ml-auto" />
+        </div>
+      </button>
       </GlowFrame>
       </Reveal>
 
@@ -1467,12 +1770,14 @@ export default function ToCloud() {
   const [account, setAccount] = useState(false);
   const [up, setUp] = useState(false);
   const [viewing, setViewing] = useState(null);
+  const [gallery, setGallery] = useState([]);
+  const [folder, setFolder] = useState(null);
   const [audio, setAudio] = useState(null);
   const [bump, setBump] = useState(0);
   const t = tr(lang);
 
   const go = v => { setDrawer(false); setView(v); };
-  const home = () => { setView("home"); setCat(null); };
+  const home = () => { setView("home"); setCat(null); setFolder(null); };
 
   function pickLang(code) {
     setLang(code);
@@ -1508,7 +1813,8 @@ export default function ToCloud() {
                       `radial-gradient(560px 280px at 100% 0%, ${T.violet}14, transparent 66%),
                        radial-gradient(480px 240px at 0% 6%, ${T.blue}12, transparent 62%)` }}>
 
-        <div className="absolute inset-0 overflow-hidden" style={{ height: "100%" }}>
+        <div className="fixed inset-0 overflow-hidden pointer-events-none"
+             style={{ maxWidth: 448, margin: "0 auto" }}>
           <Backdrop />
         </div>
 
@@ -1517,13 +1823,20 @@ export default function ToCloud() {
           <HomeView key={bump} t={t} user={user}
                     onCat={c => { setCat(c); setView("cat"); }}
                     onSearch={() => setView("search")}
+                    onFolders={() => setView("folders")}
                     onMenu={() => setDrawer(true)} onAccount={() => setAccount(true)} />}
         {view === "cat" && cat &&
-          <CategoryView key={cat.key + bump} cat={cat} onBack={home}
-                        onOpen={setViewing}
+          <CategoryView key={cat.key + (folder?.id || "") + bump} cat={cat}
+                        folder={folder?.id} folderName={folder?.name}
+                        onBack={() => folder ? (setFolder(null), setView("folders")) : home()}
+                        onOpen={(f, sibs) => { setGallery(sibs || []); setViewing(f); }}
                         onPlay={(queue, id) => setAudio({ queue, id })}
                         t={t} lang={lang} />}
-        {view === "search"     && <SearchView onBack={home} onOpen={setViewing}
+        {view === "folders"    && <FoldersView onBack={home}
+                                               onOpenFolder={(c, f) => {
+                                                 setCat(c); setFolder(f); setView("cat");
+                                               }} t={t} />}
+        {view === "search"     && <SearchView onBack={home} onOpen={f => { setGallery([]); setViewing(f); }}
                                               onPlay={(queue, id) => setAudio({ queue, id })} t={t} />}
         {view === "settings"   && <SettingsView onBack={home} go={go} lang={lang} t={t} />}
         {view === "language"   && <LanguageView onBack={() => setView("settings")}
@@ -1551,6 +1864,7 @@ export default function ToCloud() {
                      onGoCat={c => { setCat(c); setView("cat"); }} />
         {viewing && (
           <Viewer file={viewing} cat={CATS.find(c => c.key === viewing.cat)}
+                  siblings={gallery} onNavigate={setViewing}
                   onClose={() => setViewing(null)} t={t} />
         )}
         {audio && (

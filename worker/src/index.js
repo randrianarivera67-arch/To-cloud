@@ -98,20 +98,40 @@ async function me(env, request) {
 async function listFiles(env, request) {
   const s = await requireUser(env, request);
   const index = await loadIndex(env, s.userId, s.email);
+
   const q = new URL(request.url).searchParams;
   const cat = q.get("cat");
+  const folder = q.get("folder");
   const withThumbs = q.get("thumbs") === "1";
+  const limit = Math.min(60, Math.max(1, Number(q.get("limit") || 20)));
+  const cursor = Number(q.get("cursor") || 0);
 
-  const files = index.files
+  const all = (index.files || [])
     .filter(f => !cat || f.cat === cat)
-    .sort((a, b) => b.created - a.created)
-    .map(({ chunks, thumb, ...rest }) => ({
-      ...rest,
-      parts: chunks.length,
-      ...(withThumbs && thumb ? { thumb } : {}),
-    }));
+    .filter(f => !folder ? true : (f.folder || "root") === folder)
+    .sort((a, b) => b.created - a.created);
 
-  return json(env, { files, quota: index.quota, used: index.used });
+  const page = all.slice(cursor, cursor + limit).map(({ chunks, thumb, ...rest }) => ({
+    ...rest,
+    parts: chunks.length,
+    ...(withThumbs && thumb ? { thumb } : {}),
+  }));
+
+  return json(env, {
+    files: page,
+    total: all.length,
+    cursor: cursor + page.length,
+    done: cursor + page.length >= all.length,
+    quota: index.quota,
+    used: index.used,
+    counts: (index.files || []).reduce((m, f) => {
+      const e = m[f.cat] || (m[f.cat] = { n: 0, bytes: 0 });
+      e.n += 1; e.bytes += f.size;
+      return m;
+    }, {}),
+    folders: index.folders || [],
+    trashCount: (index.trash || []).length,
+  });
 }
 
 /** Reserve la place avant l'envoi — evite de decouvrir le quota au dernier morceau. */
@@ -150,7 +170,7 @@ async function uploadChunk(env, request) {
 
 async function uploadComplete(env, request) {
   const s = await requireUser(env, request);
-  const { name, size, cat, chunks, thumb } = await request.json();
+  const { name, size, cat, chunks, thumb, folder } = await request.json();
   if (!Array.isArray(chunks) || !chunks.length) return fail(env, "Aucun morceau");
 
   const id = newId();
@@ -163,6 +183,7 @@ async function uploadComplete(env, request) {
     // vignette WebP ~4 Ko generee par le navigateur : evite de telecharger
     // l'image entiere juste pour peupler une grille
     ...(thumb ? { thumb } : {}),
+    ...(folder ? { folder } : {}),
     chunks: chunks
       .sort((a, b) => a.idx - b.idx)
       .map(c => ({ i: c.idx, f: c.file_id, m: c.message_id, b: c.bot, s: c.size })),
@@ -232,24 +253,114 @@ async function download(env, request, id, idx) {
   });
 }
 
+/**
+ * Suppression douce.
+ *
+ * Le fichier quitte la liste mais ses morceaux restent sur le canal : c'est ce
+ * qui rend la restauration possible. Le quota n'est libere qu'a la purge, sinon
+ * on promettrait de la place toujours occupee.
+ */
 async function remove(env, request, id) {
   const s = await requireUser(env, request);
-  let victim = null;
 
   await mutateIndex(env, s.userId, s.email, index => {
     const i = index.files.findIndex(f => f.id === id);
     if (i === -1) throw new Error("Fichier introuvable");
-    victim = index.files[i];
-    index.files.splice(i, 1);
-    index.used = Math.max(0, index.used - victim.size);
+    const victim = index.files.splice(i, 1)[0];
+    victim.deleted = Date.now();
+    (index.trash ||= []).push(victim);
     return index;
   });
 
-  // L'index fait foi : si le menage echoue, le fichier a deja disparu pour
-  // l'utilisateur et il ne reste qu'un morceau orphelin cote canal.
-  if (victim) {
-    for (const c of victim.chunks) await dropChunk(env, c.m, c.b);
+  return json(env, { ok: true });
+}
+
+async function listTrash(env, request) {
+  const s = await requireUser(env, request);
+  const index = await loadIndex(env, s.userId, s.email);
+  const files = (index.trash || [])
+    .sort((a, b) => b.deleted - a.deleted)
+    .map(({ chunks, thumb, ...rest }) => ({ ...rest, parts: chunks.length }));
+  return json(env, { files });
+}
+
+async function restore(env, request, id) {
+  const s = await requireUser(env, request);
+  await mutateIndex(env, s.userId, s.email, index => {
+    const i = (index.trash || []).findIndex(f => f.id === id);
+    if (i === -1) throw new Error("Introuvable dans la corbeille");
+    const back = index.trash.splice(i, 1)[0];
+    delete back.deleted;
+    index.files.push(back);
+    return index;
+  });
+  return json(env, { ok: true });
+}
+
+/** Efface pour de bon : morceaux retires du canal, quota rendu. */
+async function purge(env, request, id) {
+  const s = await requireUser(env, request);
+  const gone = [];
+
+  await mutateIndex(env, s.userId, s.email, index => {
+    const keep = [];
+    for (const f of (index.trash || [])) {
+      if (id === "all" || f.id === id) {
+        gone.push(f);
+        index.used = Math.max(0, index.used - f.size);
+      } else keep.push(f);
+    }
+    if (!gone.length) throw new Error("Rien a purger");
+    index.trash = keep;
+    return index;
+  });
+
+  for (const f of gone) {
+    for (const c of f.chunks) await dropChunk(env, c.m, c.b);
   }
+  return json(env, { ok: true, removed: gone.length });
+}
+
+/* ── dossiers ── */
+
+async function addFolder(env, request) {
+  const s = await requireUser(env, request);
+  const { name, cat } = await request.json();
+  if (!name || !name.trim()) return fail(env, "Nom de dossier vide");
+
+  const folder = {
+    id: newId(),
+    name: name.trim().slice(0, 60),
+    cat: cat || null,
+    created: Date.now(),
+  };
+  await mutateIndex(env, s.userId, s.email, index => {
+    (index.folders ||= []).push(folder);
+    return index;
+  });
+  return json(env, folder);
+}
+
+/** Le dossier disparait, ses fichiers remontent a la racine — jamais supprimes. */
+async function dropFolder(env, request, id) {
+  const s = await requireUser(env, request);
+  await mutateIndex(env, s.userId, s.email, index => {
+    index.folders = (index.folders || []).filter(f => f.id !== id);
+    index.files.forEach(f => { if (f.folder === id) delete f.folder; });
+    return index;
+  });
+  return json(env, { ok: true });
+}
+
+async function moveFile(env, request, id) {
+  const s = await requireUser(env, request);
+  const { folder } = await request.json();
+  await mutateIndex(env, s.userId, s.email, index => {
+    const f = index.files.find(x => x.id === id);
+    if (!f) throw new Error("Fichier introuvable");
+    if (folder) f.folder = folder; else delete f.folder;
+    return index;
+  });
   return json(env, { ok: true });
 }
 
@@ -279,7 +390,19 @@ export default {
         if (seg[2] === "complete" && request.method === "POST") return await uploadComplete(env, request);
       }
 
+      if (seg[1] === "trash") {
+        if (!seg[2] && request.method === "GET")    return await listTrash(env, request);
+        if (seg[2] && request.method === "DELETE")  return await purge(env, request, seg[2]);
+      }
+
+      if (seg[1] === "folders") {
+        if (!seg[2] && request.method === "POST")   return await addFolder(env, request);
+        if (seg[2] && request.method === "DELETE")  return await dropFolder(env, request, seg[2]);
+      }
+
       if (seg[1] === "file" && seg[2]) {
+        if (seg[3] === "restore" && request.method === "POST") return await restore(env, request, seg[2]);
+        if (seg[3] === "move"    && request.method === "POST") return await moveFile(env, request, seg[2]);
         if (seg[3] === "urls" && request.method === "GET")    return await fileUrls(env, request, seg[2]);
         if (request.method === "DELETE")                      return await remove(env, request, seg[2]);
       }

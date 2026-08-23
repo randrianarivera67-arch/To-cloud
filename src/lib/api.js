@@ -68,10 +68,26 @@ export const me = () => call("/api/auth/me");
 export const listFiles = (cat, opts = {}) => {
   const q = new URLSearchParams();
   if (cat) q.set("cat", cat);
+  if (opts.folder) q.set("folder", opts.folder);
   if (opts.thumbs) q.set("thumbs", "1");
+  if (opts.cursor) q.set("cursor", String(opts.cursor));
+  if (opts.limit) q.set("limit", String(opts.limit));
   const qs = q.toString();
   return call(`/api/files${qs ? `?${qs}` : ""}`);
 };
+
+/* ── corbeille ── */
+export const listTrash = () => call("/api/trash");
+export const restoreFile = id => call(`/api/file/${id}/restore`, { method: "POST", body: "{}" });
+export const purgeFile = id => call(`/api/trash/${id}`, { method: "DELETE" });
+export const emptyTrash = () => call("/api/trash/all", { method: "DELETE" });
+
+/* ── dossiers ── */
+export const addFolder = (name, cat) =>
+  call("/api/folders", { method: "POST", body: JSON.stringify({ name, cat }) });
+export const dropFolder = id => call(`/api/folders/${id}`, { method: "DELETE" });
+export const moveFile = (id, folder) =>
+  call(`/api/file/${id}/move`, { method: "POST", body: JSON.stringify({ folder }) });
 
 /**
  * Vignette WebP generee dans le navigateur avant l'envoi.
@@ -104,7 +120,7 @@ export const removeFile = id => call(`/api/file/${id}`, { method: "DELETE" });
  * Envoi decoupe.
  * onProgress recoit ({ done, total, percent }) apres chaque morceau.
  */
-export async function upload(file, cat, onProgress) {
+export async function upload(file, cat, onProgress, folder) {
   const init = await call("/api/upload/init", {
     method: "POST",
     body: JSON.stringify({ name: file.name, size: file.size, cat }),
@@ -127,7 +143,7 @@ export async function upload(file, cat, onProgress) {
 
   return call("/api/upload/complete", {
     method: "POST",
-    body: JSON.stringify({ name: file.name, size: file.size, cat: init.cat, chunks, thumb }),
+    body: JSON.stringify({ name: file.name, size: file.size, cat: init.cat, chunks, thumb, folder }),
   });
 }
 

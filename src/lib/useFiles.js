@@ -36,32 +36,65 @@ export function humanSize(bytes) {
   return `${v.toFixed(v >= 100 ? 0 : 1).replace(".", ",")} ${units[i]}`;
 }
 
+/**
+ * Charge une page a la fois.
+ *
+ * Les fichiers ne sont demandes qu'au fur et a mesure du defilement : sur un
+ * forfait mobile, tirer 300 vignettes d'un coup se paie cher pour rien.
+ */
 export function useFiles(cat, opts = {}) {
   const [files, setFiles] = useState([]);
-  const [quota, setQuota] = useState({ quota: 0, used: 0 });
+  const [meta, setMeta] = useState({
+    quota: 0, used: 0, total: 0, counts: {}, folders: [], trashCount: 0,
+  });
+  const [cursor, setCursor] = useState(0);
+  const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [more, setMore] = useState(false);
   const [error, setError] = useState(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const decorate = list => list.map(f => ({
+    ...f,
+    g: groupOf(f.created),
+    when: labelOf(f.created),
+    sizeLabel: humanSize(f.size),
+  }));
+
+  const load = useCallback(async (from = 0, append = false) => {
+    append ? setMore(true) : setLoading(true);
     setError(null);
     try {
-      const r = await listFiles(cat, opts);
-      setFiles(r.files.map(f => ({
-        ...f,
-        g: groupOf(f.created),
-        when: labelOf(f.created),
-        sizeLabel: humanSize(f.size),
-      })));
-      setQuota({ quota: r.quota, used: r.used });
+      const r = await listFiles(cat, {
+        thumbs: opts.thumbs,
+        folder: opts.folder,
+        cursor: from,
+        limit: opts.limit || 20,
+      });
+      setFiles(prev => append ? [...prev, ...decorate(r.files)] : decorate(r.files));
+      setMeta({
+        quota: r.quota, used: r.used, total: r.total,
+        counts: r.counts || {}, folders: r.folders || [], trashCount: r.trashCount || 0,
+      });
+      setCursor(r.cursor);
+      setDone(r.done);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
+      setMore(false);
     }
-  }, [cat, opts.thumbs]);
+  }, [cat, opts.thumbs, opts.folder, opts.limit]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { setCursor(0); setDone(false); load(0, false); }, [load]);
 
-  return { files, quota, loading, error, refresh };
+  const loadMore = useCallback(() => {
+    if (!done && !more && !loading) load(cursor, true);
+  }, [done, more, loading, cursor, load]);
+
+  return {
+    files, meta, loading, more, done, error,
+    quota: { quota: meta.quota, used: meta.used },
+    loadMore,
+    refresh: () => load(0, false),
+  };
 }
