@@ -4,12 +4,13 @@ import {
   ArrowLeft, MoreVertical, Download, Share2, Trash2, SlidersHorizontal,
   FolderOpen, Menu, Sparkles, Settings, HelpCircle, Languages, Eye, Lock,
   Info, User, UserPlus, LogOut, ChevronRight, Wifi, Bell, ShieldCheck,
-  Pencil, CircleAlert, CheckSquare, Cloud, Zap, Play, Pause, SkipBack,
-  SkipForward, ZoomIn, ZoomOut, Volume2, ChevronLeft, Maximize2
+  Pencil, CircleAlert, CheckSquare, Cloud, Zap, ZoomIn, ZoomOut
 } from "lucide-react";
 import Auth from "./Auth.jsx";
 import InstallBanner from "./InstallBanner.jsx";
-import { load, save, drop } from "./lib/storage.js";
+import { load, save } from "./lib/storage.js";
+import { useFiles, humanSize } from "./lib/useFiles.js";
+import { upload, downloadToDisk, removeFile, objectUrl, logout } from "./lib/api.js";
 
 /* ─────────── tokens ─────────── */
 const T = {
@@ -58,6 +59,8 @@ const STR = {
     empty: "Cette catégorie est vide", emptySub: "Touchez le bouton d'envoi pour commencer.",
     uploading: "Envoi en cours", uploaded: "Envoi terminé", saved: "Enregistré",
     speed: "Débit", nodes: "Nœuds actifs", freeSpace: "libre",
+    loading: "Chargement…", loadFailed: "Impossible d'ouvrir ce fichier",
+    retry: "Réessayer", uploadFailed: "Échec de l'envoi", emptyShort: "Vide",
     chooseCat: "Où l'envoyer ?", chooseCatSub: "Le fichier sera rangé dans cette catégorie.",
     savedIn: "Voir dans", assembling: "Assemblage des parties…", noPreview: "Aperçu indisponible",
     noPreviewSub: "Ce type de fichier ne s'affiche pas dans l'application.",
@@ -77,6 +80,8 @@ const STR = {
     empty: "Mbola foana ity sokajy ity", emptySub: "Tsindrio ny bokotra fandefasana.",
     uploading: "Alefa ankehitriny", uploaded: "Vita ny fandefasana", saved: "Voatahiry",
     speed: "Hafainganana", nodes: "Node mavitrika", freeSpace: "malalaka",
+    loading: "Miandry…", loadFailed: "Tsy afaka nanokatra ity rakitra ity",
+    retry: "Andramo indray", uploadFailed: "Tsy tafita ny fandefasana", emptyShort: "Foana",
     chooseCat: "Alefa aiza?", chooseCatSub: "Ho tehirizina ao amin'ity sokajy ity ny rakitra.",
     savedIn: "Jereo ao amin'ny", assembling: "Mampitambatra ny ampahany…", noPreview: "Tsy azo jerena",
     noPreviewSub: "Tsy miseho ao anatin'ny app ity karazan-drakitra ity.",
@@ -96,6 +101,8 @@ const STR = {
     empty: "This category is empty", emptySub: "Tap the upload button to start.",
     uploading: "Uploading", uploaded: "Upload complete", saved: "Stored",
     speed: "Throughput", nodes: "Active nodes", freeSpace: "free",
+    loading: "Loading…", loadFailed: "Could not open this file",
+    retry: "Try again", uploadFailed: "Upload failed", emptyShort: "Empty",
     chooseCat: "Where to?", chooseCatSub: "The file will be filed under this category.",
     savedIn: "Open in", assembling: "Assembling parts…", noPreview: "No preview",
     noPreviewSub: "This file type can't be displayed in the app.",
@@ -106,26 +113,23 @@ const tr = c => STR[c] || STR.fr;
 
 /* ─────────── data ─────────── */
 const CATS = [
-  { key: "sary",  size: "1,2 Go",  n: 842, c: T.rose,   bg: T.roseBg,   Icon: Image },
-  { key: "video", size: "487 Mo",  n: 36,  c: T.violet, bg: T.violetBg, Icon: Film },
-  { key: "feo",   size: "0,94 Go", n: 210, c: T.gold,   bg: T.goldBg,   Icon: Music },
-  { key: "doc",   size: "60 Mo",   n: 74,  c: T.blue,   bg: T.blueBg,   Icon: FileText },
-  { key: "apk",   size: "3,1 Go",  n: 19,  c: T.rose,   bg: T.roseBg,   Icon: Package },
-  { key: "hafa",  size: "220 Mo",  n: 51,  c: T.grey,   bg: T.greyBg,   Icon: Box },
+  { key: "sary",  c: T.rose,   bg: T.roseBg,   Icon: Image },
+  { key: "video", c: T.violet, bg: T.violetBg, Icon: Film },
+  { key: "feo",   c: T.gold,   bg: T.goldBg,   Icon: Music },
+  { key: "doc",   c: T.blue,   bg: T.blueBg,   Icon: FileText },
+  { key: "apk",   c: T.rose,   bg: T.roseBg,   Icon: Package },
+  { key: "hafa",  c: T.grey,   bg: T.greyBg,   Icon: Box },
 ];
 
-const FILES = [
-  { id: 1, cat: "video", name: "Kids_Rum_Tony_ep12.mp4", size: "412 Mo", when: "18:04", g: "today", parts: 24, dur: "12:38", hue: 265 },
-  { id: 2, cat: "doc",   name: "manual_IA_vente.pdf",    size: "8,4 Mo", when: "16:22", g: "today", parts: 1, pages: 42 },
-  { id: 3, cat: "sary",  name: "cover_channel.png",      size: "2,1 Mo", when: "21:10", g: "yday",  parts: 1, dim: "1920 × 1080", hue: 330 },
-  { id: 4, cat: "feo",   name: "voix_off_intro.wav",     size: "34 Mo",  when: "19:47", g: "yday",  parts: 2, dur: "03:12" },
-  { id: 5, cat: "video", name: "Kids_Rum_Tony_ep11.mp4", size: "388 Mo", when: "18/08", g: "month", parts: 22, dur: "11:04", hue: 200 },
-  { id: 6, cat: "apk",   name: "matul-mada-v3.apk",      size: "58 Mo",  when: "16/08", g: "month", parts: 4 },
-  { id: 7, cat: "sary",  name: "perso_tony_final.png",   size: "4,8 Mo", when: "15/08", g: "month", parts: 1, dim: "2048 × 2048", hue: 45 },
-  { id: 8, cat: "hafa",  name: "assets_perso.zip",       size: "127 Mo", when: "11/08", g: "month", parts: 8 },
-  { id: 9, cat: "sary",  name: "thumbnail_ep10.jpg",     size: "1,4 Mo", when: "09/08", g: "month", parts: 1, dim: "1280 × 720", hue: 190 },
-  { id: 10, cat: "feo",  name: "musique_generique.mp3",  size: "6,2 Mo", when: "07/08", g: "month", parts: 1, dur: "02:41" },
-];
+/* filtre du selecteur de fichier, par categorie choisie */
+const ACCEPT = {
+  sary:  "image/*",
+  video: "video/*",
+  feo:   "audio/*",
+  doc:   ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.odt",
+  apk:   ".apk,.aab,.xapk",
+  hafa:  "*/*",
+};
 
 const GLABEL = {
   fr: { today: "Aujourd'hui", yday: "Hier", month: "Ce mois-ci" },
@@ -354,40 +358,37 @@ const Backdrop = () => (
 
 /* ─────────── media viewer ─────────── */
 function Viewer({ file, cat, onClose, t }) {
-  const [playing, setPlaying] = useState(false);
-  const [pos, setPos] = useState(0);
-  const [zoom, setZoom] = useState(1);
-  const [page, setPage] = useState(1);
-  const [ready, setReady] = useState(file?.parts <= 1);
+  const [src, setSrc] = useState(null);
   const [load, setLoad] = useState(0);
-  const ref = useRef(null);
+  const [err, setErr] = useState(null);
+  const [page, setPage] = useState(1);
+  const [zoom, setZoom] = useState(1);
+  const urlRef = useRef(null);
 
   useEffect(() => {
     if (!file) return;
-    setPlaying(false); setPos(0); setZoom(1); setPage(1);
-    if (file.parts > 1) {
-      setReady(false); setLoad(0);
-      const iv = setInterval(() => {
-        setLoad(l => {
-          if (l >= file.parts) { clearInterval(iv); setReady(true); return l; }
-          return l + 1;
-        });
-      }, 90);
-      return () => clearInterval(iv);
-    }
-    setReady(true);
-  }, [file?.id]);
+    let dead = false;
+    setSrc(null); setLoad(0); setErr(null); setPage(1); setZoom(1);
 
-  useEffect(() => {
-    if (!playing) return;
-    ref.current = setInterval(() => setPos(p => (p >= 100 ? (setPlaying(false), 100) : p + 1)), 180);
-    return () => clearInterval(ref.current);
-  }, [playing]);
+    objectUrl(file.id, p => { if (!dead) setLoad(p.done); })
+      .then(u => {
+        if (dead) { URL.revokeObjectURL(u); return; }
+        urlRef.current = u;
+        setSrc(u);
+      })
+      .catch(e => { if (!dead) setErr(e.message); });
+
+    return () => {
+      dead = true;
+      if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null; }
+    };
+  }, [file?.id]);
 
   if (!file) return null;
   const k = file.cat;
+  const dark = k === "sary" || k === "video";
 
-  const Chrome = ({ children, dark }) => (
+  const Chrome = ({ children }) => (
     <div className="absolute inset-0 z-50 flex flex-col"
          style={{ background: dark ? T.stage : T.bg }}>
       <div className="flex items-center gap-3 px-4 py-4 shrink-0">
@@ -400,55 +401,70 @@ function Viewer({ file, cat, onClose, t }) {
           </div>
           <div style={{ color: dark ? "rgba(255,255,255,0.6)" : T.mute, fontFamily: MONO }}
                className="text-xs mt-0.5">
-            {file.size}{file.dim ? ` · ${file.dim}` : ""}{file.dur ? ` · ${file.dur}` : ""}
+            {file.sizeLabel || humanSize(file.size)}
+            {file.parts > 1 ? ` · ${file.parts} ${t.parts}` : ""}
           </div>
         </div>
-        <button aria-label={t.download} className="p-2">
+        <button onClick={() => downloadToDisk(file.id)} aria-label={t.download} className="p-2">
           <Download size={22} color={dark ? "#FFFFFF" : T.text} />
-        </button>
-        <button aria-label={t.share} className="p-2">
-          <Share2 size={22} color={dark ? "#FFFFFF" : T.text} />
         </button>
       </div>
       {children}
     </div>
   );
 
-  /* reassembly progress */
-  if (!ready) {
+  if (err) {
     return (
-      <Chrome dark={k === "sary" || k === "video"}>
-        <div className="flex-1 flex flex-col items-center justify-center px-8">
-          <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={72} icon={34} />
-          <p style={{ color: k === "sary" || k === "video" ? "#FFFFFF" : T.text }}
-             className="text-base font-semibold mt-5 mb-2">{t.assembling}</p>
-          <p style={{ color: k === "sary" || k === "video" ? "rgba(255,255,255,0.6)" : T.mute,
-                      fontFamily: MONO }} className="text-xs mb-5">
-            {load} / {file.parts} × 18 Mo
+      <Chrome>
+        <div className="flex-1 flex flex-col items-center justify-center px-10 text-center">
+          <CircleAlert size={40} color={T.rose} strokeWidth={1.8} className="mb-4" />
+          <p style={{ color: dark ? "#FFFFFF" : T.text }} className="text-base font-semibold mb-1">
+            {t.loadFailed}
           </p>
-          <div style={{ background: "rgba(128,128,160,0.28)" }}
-               className="w-full max-w-xs h-2 rounded-full overflow-hidden">
-            <div style={{ width: `${(load / file.parts) * 100}%`, background: cat.c,
-                          transition: "width 90ms linear" }} className="h-full rounded-full" />
-          </div>
+          <p style={{ color: dark ? "rgba(255,255,255,0.6)" : T.mute }} className="text-sm">{err}</p>
         </div>
       </Chrome>
     );
   }
 
-  /* image */
+  /* les morceaux sont recuperes puis recolles avant tout affichage */
+  if (!src) {
+    const pct = file.parts > 1 ? Math.round(load / file.parts * 100) : null;
+    return (
+      <Chrome>
+        <div className="flex-1 flex flex-col items-center justify-center px-8">
+          <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={72} icon={34} />
+          <p style={{ color: dark ? "#FFFFFF" : T.text }} className="text-base font-semibold mt-5 mb-2">
+            {file.parts > 1 ? t.assembling : t.loading}
+          </p>
+          {file.parts > 1 && (
+            <>
+              <p style={{ color: dark ? "rgba(255,255,255,0.6)" : T.mute, fontFamily: MONO }}
+                 className="text-xs mb-5">
+                {load} / {file.parts} × 18 Mo
+              </p>
+              <div style={{ background: "rgba(128,128,160,0.28)" }}
+                   className="w-full max-w-xs h-2 rounded-full overflow-hidden">
+                <div style={{ width: `${pct}%`, background: cat.c, transition: "width 140ms linear" }}
+                     className="h-full rounded-full" />
+              </div>
+            </>
+          )}
+        </div>
+      </Chrome>
+    );
+  }
+
   if (k === "sary") {
     return (
-      <Chrome dark>
-        <div className="flex-1 flex items-center justify-center overflow-hidden px-4">
-          <div style={{
-                 width: 300, height: 300, transform: `scale(${zoom})`,
-                 transition: "transform 180ms ease", borderRadius: 20,
-                 background: `radial-gradient(circle at 30% 25%, hsl(${file.hue} 92% 72%), hsl(${file.hue + 40} 78% 42%) 70%)`,
-               }} className="shadow-2xl" />
+      <Chrome>
+        <div className="flex-1 flex items-center justify-center overflow-auto px-4">
+          <img src={src} alt={file.name}
+               style={{ transform: `scale(${zoom})`, transition: "transform 180ms ease" }}
+               className="max-w-full max-h-full object-contain rounded-xl" />
         </div>
         <div className="flex items-center justify-center gap-6 py-6 shrink-0">
-          <button onClick={() => setZoom(z => Math.max(0.6, +(z - 0.25).toFixed(2)))}
+          <button onClick={() => setZoom(z => Math.max(0.5, +(z - 0.25).toFixed(2)))}
                   aria-label="Réduire" className="p-3 rounded-full"
                   style={{ background: "rgba(255,255,255,0.12)" }}>
             <ZoomOut size={22} color="#FFFFFF" />
@@ -456,7 +472,7 @@ function Viewer({ file, cat, onClose, t }) {
           <span style={{ color: "#FFFFFF", fontFamily: MONO }} className="text-sm w-14 text-center">
             {Math.round(zoom * 100)}%
           </span>
-          <button onClick={() => setZoom(z => Math.min(3, +(z + 0.25).toFixed(2)))}
+          <button onClick={() => setZoom(z => Math.min(4, +(z + 0.25).toFixed(2)))}
                   aria-label="Agrandir" className="p-3 rounded-full"
                   style={{ background: "rgba(255,255,255,0.12)" }}>
             <ZoomIn size={22} color="#FFFFFF" />
@@ -466,139 +482,66 @@ function Viewer({ file, cat, onClose, t }) {
     );
   }
 
-  /* video */
   if (k === "video") {
     return (
-      <Chrome dark>
+      <Chrome>
         <div className="flex-1 flex items-center justify-center px-4">
-          <div className="relative w-full aspect-video rounded-2xl overflow-hidden"
-               style={{ background: `linear-gradient(140deg, hsl(${file.hue} 70% 30%), hsl(${file.hue + 60} 60% 14%))` }}>
-            <button onClick={() => setPlaying(p => !p)} aria-label={playing ? "Pause" : "Lecture"}
-              style={{ background: "rgba(255,255,255,0.92)" }}
-              className="absolute inset-0 m-auto w-16 h-16 rounded-full flex items-center justify-center active:scale-95">
-              {playing ? <Pause size={26} color={T.stage} /> : <Play size={26} color={T.stage} className="ml-1" />}
-            </button>
-          </div>
-        </div>
-        <div className="px-5 pb-8 shrink-0">
-          <div style={{ background: "rgba(255,255,255,0.22)" }} className="h-1.5 rounded-full mb-3">
-            <div style={{ width: `${pos}%`, background: cat.c }} className="h-full rounded-full" />
-          </div>
-          <div className="flex items-center justify-between mb-5">
-            <span style={{ color: "rgba(255,255,255,0.75)", fontFamily: MONO }} className="text-xs">
-              {String(Math.floor(pos * 0.126)).padStart(2, "0")}:
-              {String(Math.floor((pos * 7.58) % 60)).padStart(2, "0")}
-            </span>
-            <span style={{ color: "rgba(255,255,255,0.75)", fontFamily: MONO }} className="text-xs">{file.dur}</span>
-          </div>
-          <div className="flex items-center justify-center gap-8">
-            <button aria-label="Reculer" onClick={() => setPos(p => Math.max(0, p - 10))}>
-              <SkipBack size={26} color="#FFFFFF" />
-            </button>
-            <button onClick={() => setPlaying(p => !p)} aria-label={playing ? "Pause" : "Lecture"}
-              style={{ background: cat.c }}
-              className="w-14 h-14 rounded-full flex items-center justify-center active:scale-95">
-              {playing ? <Pause size={24} color="#FFFFFF" /> : <Play size={24} color="#FFFFFF" className="ml-1" />}
-            </button>
-            <button aria-label="Avancer" onClick={() => setPos(p => Math.min(100, p + 10))}>
-              <SkipForward size={26} color="#FFFFFF" />
-            </button>
-          </div>
+          <video src={src} controls autoPlay playsInline
+                 className="w-full max-h-full rounded-2xl" style={{ background: "#000" }} />
         </div>
       </Chrome>
     );
   }
 
-  /* audio */
   if (k === "feo") {
-    const bars = 44;
     return (
       <Chrome>
         <div className="flex-1 flex flex-col items-center justify-center px-8">
           <div style={{ background: `linear-gradient(150deg, ${T.gold}, ${T.rose})` }}
-               className="w-44 h-44 rounded-full flex items-center justify-center mb-8 shadow-xl">
+               className="w-44 h-44 rounded-full flex items-center justify-center mb-9 shadow-xl">
             <div style={{ background: T.bg }} className="w-14 h-14 rounded-full flex items-center justify-center">
               <Music size={26} color={T.gold} />
             </div>
           </div>
-          <div className="flex items-end gap-1 h-16 w-full justify-center mb-2">
-            {Array.from({ length: bars }).map((_, i) => {
-              const on = (i / bars) * 100 <= pos;
-              const h = 12 + Math.abs(Math.sin(i * 0.7)) * 42;
-              return <span key={i} style={{ height: h, width: 3, borderRadius: 2,
-                                            background: on ? T.gold : T.sunken }} />;
-            })}
-          </div>
-          <div className="flex items-center justify-between w-full mb-7">
-            <span style={{ color: T.mute, fontFamily: MONO }} className="text-xs">
-              {String(Math.floor(pos * 0.032)).padStart(2, "0")}:
-              {String(Math.floor((pos * 1.92) % 60)).padStart(2, "0")}
-            </span>
-            <span style={{ color: T.mute, fontFamily: MONO }} className="text-xs">{file.dur}</span>
-          </div>
-          <div className="flex items-center gap-8">
-            <button aria-label="Reculer" onClick={() => setPos(p => Math.max(0, p - 10))}>
-              <SkipBack size={26} color={T.text} />
-            </button>
-            <button onClick={() => setPlaying(p => !p)} aria-label={playing ? "Pause" : "Lecture"}
-              style={{ background: T.gold }}
-              className="w-16 h-16 rounded-full flex items-center justify-center active:scale-95">
-              {playing ? <Pause size={26} color="#FFFFFF" /> : <Play size={26} color="#FFFFFF" className="ml-1" />}
-            </button>
-            <button aria-label="Avancer" onClick={() => setPos(p => Math.min(100, p + 10))}>
-              <SkipForward size={26} color={T.text} />
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 px-8 pb-8 shrink-0">
-          <Volume2 size={20} color={T.mute} />
-          <div style={{ background: T.sunken }} className="flex-1 h-1.5 rounded-full">
-            <div style={{ width: "72%", background: T.mute }} className="h-full rounded-full" />
-          </div>
+          <audio src={src} controls autoPlay className="w-full" />
         </div>
       </Chrome>
     );
   }
 
-  /* document */
   if (k === "doc") {
+    const pdf = /\.pdf$/i.test(file.name);
     return (
       <Chrome>
-        <div className="flex-1 flex items-center justify-center px-6 overflow-hidden">
-          <div style={{ background: T.card, border: `1px solid ${T.line}` }}
-               className="w-full max-w-xs aspect-[3/4] rounded-xl p-6 shadow-lg">
-            <div style={{ background: T.blue }} className="h-2.5 w-1/2 rounded-full mb-5" />
-            {[100, 92, 96, 70, 100, 88, 94, 60].map((w, i) => (
-              <div key={i} style={{ background: T.sunken, width: `${w}%` }}
-                   className="h-2 rounded-full mb-2.5" />
-            ))}
-            <div style={{ background: T.blueBg }} className="h-16 w-full rounded-lg mt-4" />
-          </div>
-        </div>
-        <div className="flex items-center justify-center gap-6 py-6 shrink-0">
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} aria-label="Page précédente" className="p-2">
-            <ChevronLeft size={24} color={page > 1 ? T.text : T.faint} />
-          </button>
-          <span style={{ color: T.text, fontFamily: MONO }} className="text-sm">
-            {page} / {file.pages}
-          </span>
-          <button onClick={() => setPage(p => Math.min(file.pages, p + 1))} aria-label="Page suivante" className="p-2">
-            <ChevronRight size={24} color={page < file.pages ? T.text : T.faint} />
-          </button>
-          <button aria-label="Plein écran" className="p-2"><Maximize2 size={22} color={T.mute} /></button>
+        <div className="flex-1 px-3 pb-3 overflow-hidden">
+          {pdf ? (
+            <iframe src={src} title={file.name}
+                    className="w-full h-full rounded-2xl"
+                    style={{ background: T.card, border: `1px solid ${T.line}` }} />
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-center px-8">
+              <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={76} icon={36} />
+              <p style={{ color: T.text }} className="text-base font-semibold mt-5 mb-1">{t.noPreview}</p>
+              <p style={{ color: T.mute }} className="text-sm leading-snug mb-7">{t.noPreviewSub}</p>
+              <button onClick={() => downloadToDisk(file.id)} style={{ background: T.violet }}
+                      className="flex items-center gap-2.5 px-7 py-3.5 rounded-full active:opacity-80">
+                <Download size={20} color="#FFFFFF" />
+                <span className="text-base font-semibold text-white">{t.download}</span>
+              </button>
+            </div>
+          )}
         </div>
       </Chrome>
     );
   }
 
-  /* apk / other */
   return (
     <Chrome>
       <div className="flex-1 flex flex-col items-center justify-center px-10 text-center">
         <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={80} icon={38} />
         <p style={{ color: T.text }} className="text-lg font-semibold mt-5 mb-1">{t.noPreview}</p>
         <p style={{ color: T.mute }} className="text-sm leading-snug mb-7">{t.noPreviewSub}</p>
-        <button style={{ background: T.violet }}
+        <button onClick={() => downloadToDisk(file.id)} style={{ background: T.violet }}
                 className="flex items-center gap-2.5 px-7 py-3.5 rounded-full active:opacity-80">
           <Download size={20} color="#FFFFFF" />
           <span className="text-base font-semibold text-white">{t.download}</span>
@@ -650,8 +593,9 @@ function Drawer({ open, onClose, go, t }) {
   );
 }
 
+
 /* ─────────── file menu ─────────── */
-const FileMenu = ({ file, cat, onClose, onOpen, t }) => (
+const FileMenu = ({ file, cat, onClose, onOpen, onDownload, onDelete, t }) => (
   <Sheet open={!!file} onClose={onClose}>
     {file && (
       <>
@@ -660,23 +604,17 @@ const FileMenu = ({ file, cat, onClose, onOpen, t }) => (
           <div className="min-w-0">
             <div style={{ color: T.text }} className="text-base font-semibold truncate">{file.name}</div>
             <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
-              {file.size}{file.parts > 1 ? ` · ${file.parts} ${t.parts}` : ""}
+              {file.sizeLabel}{file.parts > 1 ? ` \u00b7 ${file.parts} ${t.parts}` : ""}
             </div>
           </div>
         </div>
         <Panel className="mx-3 overflow-hidden mb-3">
           <Row Icon={Eye} title={t.open} onClick={onOpen} />
           <Divider />
-          <Row Icon={Download} title={t.download} onClick={onClose} />
-          <Divider />
-          <Row Icon={Share2} title={t.share} onClick={onClose} />
-          <Divider />
-          <Row Icon={Pencil} title={t.rename} onClick={onClose} />
-          <Divider />
-          <Row Icon={Info} title={t.details} onClick={onClose} />
+          <Row Icon={Download} title={t.download} onClick={onDownload} />
         </Panel>
         <Panel className="mx-3 overflow-hidden">
-          <Row Icon={Trash2} title={t.del} danger onClick={onClose} />
+          <Row Icon={Trash2} title={t.del} danger onClick={onDelete} />
         </Panel>
       </>
     )}
@@ -684,70 +622,83 @@ const FileMenu = ({ file, cat, onClose, onOpen, t }) => (
 );
 
 /* ─────────── account ─────────── */
-const AccountSheet = ({ open, onClose, go, t }) => (
+const AccountSheet = ({ open, onClose, go, user, onSignOut, t }) => (
   <Sheet open={open} onClose={onClose}>
     <div className="flex items-center gap-4 px-6 pb-5">
       <div style={{ background: `linear-gradient(145deg, ${T.violet}, ${T.blue})` }}
            className="w-14 h-14 rounded-full flex items-center justify-center">
-        <span style={{ color: "#FFFFFF", fontFamily: DISPLAY }} className="text-xl font-bold">G</span>
+        <span style={{ color: "#FFFFFF", fontFamily: DISPLAY }} className="text-xl font-bold">
+          {(user?.name || "?").trim().charAt(0).toUpperCase()}
+        </span>
       </div>
       <div className="min-w-0">
-        <div style={{ color: T.text }} className="text-lg font-semibold">Global Payment</div>
-        <div style={{ color: T.mute }} className="text-sm truncate">global@to-cloud.mg</div>
-        <div style={{ color: T.blue, fontFamily: MONO }} className="text-xs mt-1">51 / 100 GO {t.used}</div>
+        <div style={{ color: T.text }} className="text-lg font-semibold truncate">{user?.name}</div>
+        <div style={{ color: T.mute }} className="text-sm truncate">{user?.email}</div>
       </div>
     </div>
     <NavRow c={T.blue} Icon={UserPlus} title={t.addAccount} sub={t.addAccountSub}
             onClick={() => { onClose(); go("addAccount"); }} />
     <NavRow c={T.violet} Icon={Settings} title={t.settings}
             onClick={() => { onClose(); go("settings"); }} />
-    <NavRow c={T.rose} Icon={LogOut} title={t.signOut} danger onClick={onClose} />
+    <NavRow c={T.rose} Icon={LogOut} title={t.signOut} danger
+            onClick={() => { onClose(); onSignOut(); }} />
   </Sheet>
 );
 
 /* ─────────── upload ─────────── */
-function UploadSheet({ open, onClose, onGoCat, t }) {
+function UploadSheet({ open, onClose, onGoCat, onDone, t }) {
   const [pick, setPick] = useState(null);
+  const [file, setFile] = useState(null);
   const [done, setDone] = useState(0);
-  const ref = useRef(null);
+  const [total, setTotal] = useState(1);
+  const [fin, setFin] = useState(false);
+  const [err, setErr] = useState(null);
+  const inputRef = useRef(null);
+  const wantedRef = useRef(null);
+
   const cat = CATS.find(c => c.key === pick);
-  const SAMPLE = {
-    sary:  { name: "cover_ep13.png",           size: "4,2 Mo",  parts: 1 },
-    video: { name: "Kids_Rum_Tony_ep13.mp4",   size: "412 Mo",  parts: 24 },
-    feo:   { name: "musique_intro.mp3",        size: "9,6 Mo",  parts: 1 },
-    doc:   { name: "plan_marketing.pdf",       size: "3,1 Mo",  parts: 1 },
-    apk:   { name: "to-cloud-v1.apk",          size: "58 Mo",   parts: 4 },
-    hafa:  { name: "archive_projet.zip",       size: "127 Mo",  parts: 8 },
-  };
-  const file = pick ? SAMPLE[pick] : null;
-  const total = file?.parts || 1;
 
   useEffect(() => {
-    if (!open) { setPick(null); setDone(0); return; }
+    if (!open) {
+      setPick(null); setFile(null); setDone(0); setTotal(1); setFin(false); setErr(null);
+    }
   }, [open]);
 
-  useEffect(() => {
-    if (!pick) return;
-    setDone(0);
-    ref.current = setInterval(() => {
-      setDone(d => { if (d >= total) { clearInterval(ref.current); return d; } return d + 1; });
-    }, total > 6 ? 190 : 420);
-    return () => clearInterval(ref.current);
-  }, [pick]);
+  function choose(key) {
+    wantedRef.current = key;
+    inputRef.current.accept = ACCEPT[key] || "*/*";
+    inputRef.current.value = "";
+    inputRef.current.click();
+  }
+
+  async function onFile(e) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const key = wantedRef.current;
+    setPick(key); setFile(f); setErr(null); setFin(false); setDone(0);
+
+    try {
+      await upload(f, key, p => { setDone(p.done); setTotal(p.total); });
+      setFin(true);
+      onDone?.();
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  }
 
   if (!open) return null;
-  const fin = pick && done >= total;
+  const accent = err ? T.rose : fin ? T.blue : (cat?.c || T.violet);
 
   return (
     <div className="absolute inset-0 z-50 flex items-end"
          style={{ background: "rgba(23,20,42,0.45)" }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()}
-           style={{ background: T.card,
-                    border: `2px solid ${fin ? T.blue : (cat?.c || T.violet)}`, borderBottom: "none" }}
+           style={{ background: T.card, border: `2px solid ${accent}`, borderBottom: "none" }}
            className="w-full rounded-t-3xl p-6 pb-9">
 
-        {/* step 1 — choose where it goes */}
-        {!pick && (
+        <input ref={inputRef} type="file" hidden onChange={onFile} />
+
+        {!file && (
           <>
             <div className="flex items-center justify-between mb-2">
               <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
@@ -757,11 +708,12 @@ function UploadSheet({ open, onClose, onGoCat, t }) {
             <p style={{ color: T.mute }} className="text-sm mb-5 leading-snug">{t.chooseCatSub}</p>
             <div className="grid grid-cols-3 gap-3">
               {CATS.map(c => (
-                <button key={c.key} onClick={() => setPick(c.key)}
+                <button key={c.key} onClick={() => choose(c.key)}
                   style={{ background: T.card, border: `2px solid ${c.c}`, boxShadow: halo(c.c) }}
                   className="flex flex-col items-center gap-2.5 py-4 rounded-2xl active:scale-95">
                   <Tile c={c.c} bg={c.bg} Icon={c.Icon} size={46} icon={22} />
-                  <span style={{ color: T.text }} className="text-xs font-semibold text-center leading-tight px-1">
+                  <span style={{ color: T.text }}
+                        className="text-xs font-semibold text-center leading-tight px-1">
                     {t.cats[c.key]}
                   </span>
                 </button>
@@ -770,12 +722,13 @@ function UploadSheet({ open, onClose, onGoCat, t }) {
           </>
         )}
 
-        {/* step 2 — sending */}
-        {pick && (
+        {file && (
           <>
             <div className="flex items-center justify-between mb-5">
               <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
-                  className="text-xl font-bold uppercase">{fin ? t.uploaded : t.uploading}</h2>
+                  className="text-xl font-bold uppercase">
+                {err ? t.uploadFailed : fin ? t.uploaded : t.uploading}
+              </h2>
               <button onClick={onClose} aria-label="Fermer"><X size={24} color={T.mute} /></button>
             </div>
 
@@ -784,15 +737,8 @@ function UploadSheet({ open, onClose, onGoCat, t }) {
               <div className="min-w-0 flex-1">
                 <div style={{ color: T.text }} className="text-base truncate">{file.name}</div>
                 <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
-                  {file.size}{total > 1 ? ` · ${total} × 18 Mo` : ""}
+                  {humanSize(file.size)}{total > 1 ? ` · ${total} × 18 Mo` : ""}
                 </div>
-              </div>
-              <div className="text-right">
-                <div style={{ color: T.blue, fontFamily: MONO }} className="text-xs">
-                  {fin ? "0" : "4.2"} MB/s
-                </div>
-                <div style={{ color: T.faint, fontFamily: DISPLAY, letterSpacing: "0.1em" }}
-                     className="text-xs font-bold uppercase mt-0.5">{t.speed}</div>
               </div>
             </div>
 
@@ -804,17 +750,20 @@ function UploadSheet({ open, onClose, onGoCat, t }) {
               ))}
             </div>
 
-            <div className="flex items-center justify-between mb-4">
-              <span style={{ color: fin ? T.blue : T.mute, fontFamily: MONO }} className="text-xs">
-                {fin ? t.saved.toUpperCase()
-                     : `${String(Math.round(done / total * 100)).padStart(2, "0")}% · ${done}/${total}`}
-              </span>
-              {fin && <Check size={20} color={T.blue} />}
-            </div>
+            {err ? (
+              <p style={{ color: T.rose }} className="text-sm mb-4">{err}</p>
+            ) : (
+              <div className="flex items-center justify-between mb-4">
+                <span style={{ color: fin ? T.blue : T.mute, fontFamily: MONO }} className="text-xs">
+                  {fin ? t.saved.toUpperCase()
+                       : `${String(Math.round(done / total * 100)).padStart(2, "0")}% · ${done}/${total}`}
+                </span>
+                {fin && <Check size={20} color={T.blue} />}
+              </div>
+            )}
 
             {fin && (
-              <button onClick={() => { onClose(); onGoCat(cat); }}
-                style={{ background: cat.c }}
+              <button onClick={() => { onClose(); onGoCat(cat); }} style={{ background: cat.c }}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-full active:opacity-80">
                 <span className="text-base font-semibold text-white">
                   {t.savedIn} {t.cats[cat.key]}
@@ -937,11 +886,11 @@ const TrashView = ({ onBack, t }) => (
   </div>
 );
 
-const AddAccountView = ({ onBack, t }) => (
+const AddAccountView = ({ onBack, user, t }) => (
   <div className="pb-10">
     <TopBar title={t.addAccount} onBack={onBack} />
     <Section>
-      <Row Icon={User} title="global@to-cloud.mg" sub="Compte actif" right={<Check size={20} color={T.violet} />} />
+      <Row Icon={User} title={user?.email} sub="Compte actif" right={<Check size={20} color={T.violet} />} />
       <Divider />
       <Row Icon={UserPlus} title="Connecter un nouveau compte" right={<ChevronRight size={20} color={T.faint} />} />
     </Section>
@@ -969,7 +918,9 @@ const HelpView = ({ onBack, t }) => (
 function CategoryView({ cat, onBack, onOpen, t, lang }) {
   const [sel, setSel] = useState([]);
   const [menu, setMenu] = useState(null);
-  const items = useMemo(() => FILES.filter(f => f.cat === cat.key), [cat.key]);
+  const [busy, setBusy] = useState(false);
+  const { files: items, loading, error, refresh } = useFiles(cat.key);
+
   const groups = useMemo(() => {
     const m = {}; items.forEach(f => { (m[f.g] ||= []).push(f); }); return m;
   }, [items]);
@@ -978,6 +929,21 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
   const all = sel.length === items.length && items.length > 0;
   const toggle = id => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
   const label = GLABEL[lang] || GLABEL.fr;
+
+  const totalSize = items.reduce((n, f) => n + f.size, 0);
+
+  async function wipe(ids) {
+    setBusy(true);
+    try {
+      for (const id of ids) await removeFile(id);
+      setSel([]);
+      await refresh();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="pb-10">
@@ -990,9 +956,11 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
           <span style={{ color: T.text, fontFamily: MONO }} className="flex-1 text-sm">
             {String(sel.length).padStart(2, "0")} {t.selected}
           </span>
-          <button aria-label={t.download} className="p-2"><Download size={22} color={T.text} /></button>
-          <button aria-label={t.share} className="p-2"><Share2 size={22} color={T.text} /></button>
-          <button aria-label={t.del} className="p-2" onClick={() => setSel([])}>
+          <button aria-label={t.download} className="p-2"
+                  onClick={() => sel.forEach(id => downloadToDisk(id))}>
+            <Download size={22} color={T.text} />
+          </button>
+          <button aria-label={t.del} className="p-2" disabled={busy} onClick={() => wipe(sel)}>
             <Trash2 size={22} color={T.rose} />
           </button>
         </div>
@@ -1002,10 +970,11 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
             <ArrowLeft size={26} color={T.text} />
           </button>
           <div className="flex items-center gap-1">
-            <button onClick={() => setSel(items.map(f => f.id))} aria-label={t.selectAll} className="p-2">
-              <CheckSquare size={22} color={T.mute} />
+            <button onClick={() => setSel(items.map(f => f.id))} aria-label={t.selectAll}
+                    className="p-2" disabled={!items.length}>
+              <CheckSquare size={22} color={items.length ? T.mute : T.faint} />
             </button>
-            <button aria-label="Filtrer" className="p-2">
+            <button onClick={refresh} aria-label="Actualiser" className="p-2">
               <SlidersHorizontal size={22} color={T.mute} />
             </button>
           </div>
@@ -1019,7 +988,7 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
             <h1 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.02em" }}
                 className="text-2xl font-bold uppercase">{t.cats[cat.key]}</h1>
             <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
-              {cat.n} {t.files} · {cat.size}
+              {items.length} {t.files}{items.length ? ` · ${humanSize(totalSize)}` : ""}
             </p>
           </div>
         </div>
@@ -1033,7 +1002,22 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
         </button>
       )}
 
-      {items.length === 0 && (
+      {loading && (
+        <p style={{ color: T.mute }} className="text-sm px-6 py-10 text-center">{t.loading}</p>
+      )}
+
+      {error && !loading && (
+        <Panel className="mx-3 p-6 text-center">
+          <CircleAlert size={34} color={T.rose} strokeWidth={1.8} className="mx-auto mb-3" />
+          <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.loadFailed}</p>
+          <p style={{ color: T.mute }} className="text-sm mb-4">{error}</p>
+          <button onClick={refresh} style={{ color: T.violet }} className="text-sm font-bold">
+            {t.retry}
+          </button>
+        </Panel>
+      )}
+
+      {!loading && !error && items.length === 0 && (
         <Panel className="mx-3 p-8 text-center">
           <FolderOpen size={40} color={T.faint} strokeWidth={1.6} className="mx-auto mb-4" />
           <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.empty}</p>
@@ -1070,7 +1054,7 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
                     <span className="min-w-0 flex-1">
                       <span style={{ color: T.text }} className="block text-base truncate">{f.name}</span>
                       <span style={{ color: T.mute, fontFamily: MONO }} className="block text-xs mt-1">
-                        {f.size} · {f.when}{f.parts > 1 ? ` · ${f.parts}×` : ""}
+                        {f.sizeLabel} · {f.when}{f.parts > 1 ? ` · ${f.parts}×` : ""}
                       </span>
                     </span>
                   </button>
@@ -1086,14 +1070,42 @@ function CategoryView({ cat, onBack, onOpen, t, lang }) {
       ))}
 
       <FileMenu file={menu} cat={cat} t={t} onClose={() => setMenu(null)}
-                onOpen={() => { const f = menu; setMenu(null); onOpen(f); }} />
+                onOpen={() => { const f = menu; setMenu(null); onOpen(f); }}
+                onDownload={() => { const f = menu; setMenu(null); downloadToDisk(f.id); }}
+                onDelete={() => { const f = menu; setMenu(null); wipe([f.id]); }} />
     </div>
   );
 }
 
+
 /* ─────────── home ─────────── */
-function HomeView({ onCat, onMenu, onAccount, t }) {
-  const segs = [{ c: T.rose, v: 22 }, { c: T.violet, v: 14 }, { c: T.gold, v: 9 }, { c: T.blue, v: 6 }];
+function HomeView({ onCat, onMenu, onAccount, user, t }) {
+  const { files, quota, loading } = useFiles();
+
+  const stats = useMemo(() => {
+    const m = {};
+    CATS.forEach(c => { m[c.key] = { n: 0, bytes: 0 }; });
+    files.forEach(f => {
+      const s = m[f.cat] || (m[f.cat] = { n: 0, bytes: 0 });
+      s.n += 1; s.bytes += f.size;
+    });
+    return m;
+  }, [files]);
+
+  const totalGo = Math.max(1, Math.round(quota.quota / 1024 ** 3));
+  const usedGo = (quota.used / 1024 ** 3).toFixed(quota.used < 1024 ** 3 ? 2 : 1).replace(".", ",");
+  const freeGo = Math.max(0, totalGo - quota.used / 1024 ** 3).toFixed(0);
+
+  /* chaque segment est proportionnel a la part reelle du quota */
+  const segs = [
+    { c: T.rose,   k: "sary" },
+    { c: T.violet, k: "video" },
+    { c: T.gold,   k: "feo" },
+    { c: T.blue,   k: "doc" },
+  ].map(s => ({ ...s, v: quota.quota ? (stats[s.k]?.bytes || 0) / quota.quota * 100 : 0 }));
+
+  const initial = (user?.name || "?").trim().charAt(0).toUpperCase();
+
   return (
     <div className="pb-10">
       <header className="flex items-center justify-between px-4 pt-5 pb-6">
@@ -1104,7 +1116,9 @@ function HomeView({ onCat, onMenu, onAccount, t }) {
         <button onClick={onAccount} aria-label={t.account}
           style={{ background: `linear-gradient(145deg, ${T.violet}, ${T.blue})` }}
           className="w-10 h-10 rounded-full flex items-center justify-center active:opacity-70">
-          <span style={{ color: "#FFFFFF", fontFamily: DISPLAY }} className="text-base font-bold">G</span>
+          <span style={{ color: "#FFFFFF", fontFamily: DISPLAY }} className="text-base font-bold">
+            {initial}
+          </span>
         </button>
       </header>
 
@@ -1126,9 +1140,9 @@ function HomeView({ onCat, onMenu, onAccount, t }) {
                  className="font-bold uppercase mb-1.5">{t.storage}</div>
             <div className="flex items-baseline gap-2">
               <span style={{ color: T.text, fontFamily: DISPLAY }}
-                    className="text-5xl font-bold leading-none">51</span>
+                    className="text-5xl font-bold leading-none">{loading ? "—" : usedGo}</span>
               <span style={{ color: T.mute, fontFamily: DISPLAY }}
-                    className="text-3xl font-bold leading-none">/ 100 Go</span>
+                    className="text-3xl font-bold leading-none">/ {totalGo} Go</span>
             </div>
           </div>
           <span style={{ color: T.blue, background: T.blueBg, fontFamily: DISPLAY,
@@ -1137,18 +1151,21 @@ function HomeView({ onCat, onMenu, onAccount, t }) {
         </div>
 
         <div style={{ background: T.sunken }} className="h-4 w-full flex gap-1 rounded-full overflow-hidden mb-3">
-          {segs.map((s, i) => <div key={i} style={{ width: `${s.v}%`, background: s.c }} className="rounded-full" />)}
+          {segs.map((s, i) => (
+            <div key={i} style={{ width: `${Math.max(s.v, s.v > 0 ? 2 : 0)}%`, background: s.c }}
+                 className="rounded-full" />
+          ))}
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          {[["sary", T.rose], ["video", T.violet], ["feo", T.gold], ["doc", T.blue]].map(([k, c]) => (
-            <span key={k} className="flex items-center gap-1.5">
-              <span style={{ background: c }} className="w-2.5 h-2.5 rounded-full" />
-              <span style={{ color: T.mute, fontSize: 11 }}>{t.cats[k]}</span>
+          {segs.map(s => (
+            <span key={s.k} className="flex items-center gap-1.5">
+              <span style={{ background: s.c }} className="w-2.5 h-2.5 rounded-full" />
+              <span style={{ color: T.mute, fontSize: 11 }}>{t.cats[s.k]}</span>
             </span>
           ))}
           <span style={{ color: T.faint, fontFamily: MONO, fontSize: 11 }} className="ml-auto">
-            49 Go {t.freeSpace}
+            {freeGo} Go {t.freeSpace}
           </span>
         </div>
       </div>
@@ -1162,18 +1179,25 @@ function HomeView({ onCat, onMenu, onAccount, t }) {
       </div>
 
       <div className="grid grid-cols-2 gap-3 px-3">
-        {CATS.map((c, i) => (
-          <Reveal key={c.key} delay={i * 70}>
-            <GlowFrame c={c.c} speed={4.5 + i * 0.6}>
-              <button onClick={() => onCat(c)}
-                      className="w-full h-full p-4 rounded-3xl text-left active:opacity-60">
-                <div className="mb-4"><Tile c={c.c} bg={c.bg} Icon={c.Icon} /></div>
-                <div style={{ color: T.text }} className="text-base font-semibold leading-snug">{t.cats[c.key]}</div>
-                <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1.5">{c.size} · {c.n}</div>
-              </button>
-            </GlowFrame>
-          </Reveal>
-        ))}
+        {CATS.map((c, i) => {
+          const s = stats[c.key] || { n: 0, bytes: 0 };
+          return (
+            <Reveal key={c.key} delay={i * 70}>
+              <GlowFrame c={c.c} speed={4.5 + i * 0.6}>
+                <button onClick={() => onCat(c)}
+                        className="w-full h-full p-4 rounded-3xl text-left active:opacity-60">
+                  <div className="mb-4"><Tile c={c.c} bg={c.bg} Icon={c.Icon} /></div>
+                  <div style={{ color: T.text }} className="text-base font-semibold leading-snug">
+                    {t.cats[c.key]}
+                  </div>
+                  <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1.5">
+                    {s.n ? `${humanSize(s.bytes)} · ${s.n}` : t.emptyShort}
+                  </div>
+                </button>
+              </GlowFrame>
+            </Reveal>
+          );
+        })}
       </div>
     </div>
   );
@@ -1182,17 +1206,30 @@ function HomeView({ onCat, onMenu, onAccount, t }) {
 /* ─────────── shell ─────────── */
 export default function ToCloud() {
   const [user, setUser] = useState(() => load("tc_user", null));
-  const [lang, setLang] = useState("fr");
+  const [lang, setLang] = useState(() => load("tc_lang", "fr"));
   const [view, setView] = useState("home");
   const [cat, setCat] = useState(null);
   const [drawer, setDrawer] = useState(false);
   const [account, setAccount] = useState(false);
   const [up, setUp] = useState(false);
   const [viewing, setViewing] = useState(null);
+  const [bump, setBump] = useState(0);
   const t = tr(lang);
 
   const go = v => { setDrawer(false); setView(v); };
   const home = () => { setView("home"); setCat(null); };
+
+  function pickLang(code) {
+    setLang(code);
+    save("tc_lang", code);
+  }
+
+  function signOut() {
+    logout();
+    setUser(null);
+    setView("home");
+    setCat(null);
+  }
 
   if (!user) {
     return <Auth lang={lang} onDone={u => { save("tc_user", u); setUser(u); }} />;
@@ -1221,32 +1258,36 @@ export default function ToCloud() {
         </div>
 
         <div className="relative">
-
         {view === "home" &&
-          <HomeView t={t} onCat={c => { setCat(c); setView("cat"); }}
+          <HomeView key={bump} t={t} user={user}
+                    onCat={c => { setCat(c); setView("cat"); }}
                     onMenu={() => setDrawer(true)} onAccount={() => setAccount(true)} />}
         {view === "cat" && cat &&
-          <CategoryView cat={cat} onBack={home} onOpen={setViewing} t={t} lang={lang} />}
+          <CategoryView key={cat.key + bump} cat={cat} onBack={home}
+                        onOpen={setViewing} t={t} lang={lang} />}
         {view === "settings"   && <SettingsView onBack={home} go={go} lang={lang} t={t} />}
-        {view === "language"   && <LanguageView onBack={() => setView("settings")} lang={lang} setLang={setLang} t={t} />}
+        {view === "language"   && <LanguageView onBack={() => setView("settings")}
+                                                lang={lang} setLang={pickLang} t={t} />}
         {view === "clean"      && <CleanView onBack={home} t={t} />}
         {view === "trash"      && <TrashView onBack={home} t={t} />}
         {view === "help"       && <HelpView onBack={home} t={t} />}
-        {view === "addAccount" && <AddAccountView onBack={home} t={t} />}
+        {view === "addAccount" && <AddAccountView onBack={home} user={user} t={t} />}
         </div>
 
         <button onClick={() => setUp(true)}
           style={{ background: `linear-gradient(145deg, ${T.blue}, ${T.violet})`,
                    boxShadow: "0 8px 24px rgba(115,50,224,0.35)" }}
           className="fixed right-5 bottom-28 w-16 h-16 rounded-full flex items-center justify-center z-40 active:scale-95"
-          aria-label="Envoyer un fichier">
+          aria-label={t.chooseCat}>
           <Upload size={26} color="#FFFFFF" strokeWidth={2.4} />
         </button>
 
         <Drawer open={drawer} onClose={() => setDrawer(false)} go={go} t={t} />
-        <AccountSheet open={account} onClose={() => setAccount(false)} go={go} t={t} />
+        <AccountSheet open={account} onClose={() => setAccount(false)} go={go}
+                      user={user} onSignOut={signOut} t={t} />
         <InstallBanner lang={lang} />
         <UploadSheet open={up} onClose={() => setUp(false)} t={t}
+                     onDone={() => setBump(b => b + 1)}
                      onGoCat={c => { setCat(c); setView("cat"); }} />
         {viewing && (
           <Viewer file={viewing} cat={CATS.find(c => c.key === viewing.cat)}
