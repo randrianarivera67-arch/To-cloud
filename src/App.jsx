@@ -7,6 +7,9 @@ import {
   Pencil, CircleAlert, CheckSquare, Cloud, Zap, Play, Pause, SkipBack,
   SkipForward, ZoomIn, ZoomOut, Volume2, ChevronLeft, Maximize2
 } from "lucide-react";
+import Auth from "./Auth.jsx";
+import InstallBanner from "./InstallBanner.jsx";
+import { load, save, drop } from "./lib/storage.js";
 
 /* ─────────── tokens ─────────── */
 const T = {
@@ -1178,6 +1181,7 @@ function HomeView({ onCat, onMenu, onAccount, t }) {
 
 /* ─────────── shell ─────────── */
 export default function ToCloud() {
+  const [user, setUser] = useState(() => load("tc_user", null));
   const [lang, setLang] = useState("fr");
   const [view, setView] = useState("home");
   const [cat, setCat] = useState(null);
@@ -1189,6 +1193,10 @@ export default function ToCloud() {
 
   const go = v => { setDrawer(false); setView(v); };
   const home = () => { setView("home"); setCat(null); };
+
+  if (!user) {
+    return <Auth lang={lang} onDone={u => { save("tc_user", u); setUser(u); }} />;
+  }
 
   return (
     <div style={{ background: T.bg, fontFamily: "'Inter Tight', system-ui, sans-serif" }}
@@ -1230,13 +1238,14 @@ export default function ToCloud() {
         <button onClick={() => setUp(true)}
           style={{ background: `linear-gradient(145deg, ${T.blue}, ${T.violet})`,
                    boxShadow: "0 8px 24px rgba(115,50,224,0.35)" }}
-          className="fixed right-5 bottom-6 w-16 h-16 rounded-full flex items-center justify-center z-40 active:scale-95"
+          className="fixed right-5 bottom-28 w-16 h-16 rounded-full flex items-center justify-center z-40 active:scale-95"
           aria-label="Envoyer un fichier">
           <Upload size={26} color="#FFFFFF" strokeWidth={2.4} />
         </button>
 
         <Drawer open={drawer} onClose={() => setDrawer(false)} go={go} t={t} />
         <AccountSheet open={account} onClose={() => setAccount(false)} go={go} t={t} />
+        <InstallBanner lang={lang} />
         <UploadSheet open={up} onClose={() => setUp(false)} t={t}
                      onGoCat={c => { setCat(c); setView("cat"); }} />
         {viewing && (

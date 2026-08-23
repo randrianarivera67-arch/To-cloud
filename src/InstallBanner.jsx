@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Download, Smartphone, Check } from "lucide-react";
-import { T, DISPLAY, MONO, halo } from "./theme.js";
+import { T, DISPLAY, MONO, halo } from "./theme.jsx";
 import { load, save } from "./lib/storage.js";
 
 /* Emplacement du fichier APK une fois qu'il est publie.

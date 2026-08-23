@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Mail, Lock, User as UserIcon, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
-import { T, DISPLAY, MONO, halo, Logo, GlowFrame } from "./theme.js";
+import { T, DISPLAY, MONO, halo, Logo, GlowFrame } from "./theme.jsx";
+import { register as apiRegister, login as apiLogin } from "./lib/api.js";
 
 const COPY = {
   fr: {
@@ -16,6 +17,8 @@ const COPY = {
     errEmail: "Adresse e-mail invalide.",
     errPass: "Le mot de passe doit contenir au moins 8 caractères.",
     errName: "Indiquez votre nom.",
+    errNetwork: "Serveur injoignable. Verifiez votre connexion.",
+    googleSoon: "La connexion Google n'est pas encore disponible. Utilisez votre e-mail.",
   },
   mg: {
     tagline: "100 Go maimaim-poana. Ny rakitrao, na aiza na aiza.",
@@ -30,6 +33,8 @@ const COPY = {
     errEmail: "Tsy mety ny adiresy mailaka.",
     errPass: "Tokony ho 8 litera farafahakeliny ny teny miafina.",
     errName: "Ampidiro ny anaranao.",
+    errNetwork: "Tsy tratra ny serveur. Jereo ny fifandraisanao.",
+    googleSoon: "Mbola tsy vonona ny fidirana amin'ny Google. Ampiasao ny mailakao.",
   },
 };
 
@@ -66,35 +71,29 @@ export default function Auth({ onDone, lang = "fr" }) {
 
   const signup = mode === "signup";
 
-  function finish(user) {
-    setBusy(null);
-    onDone(user);
-  }
-
-  function withGoogle() {
+  async function withGoogle() {
     setErr("");
-    setBusy("google");
-    // TODO: remplacer par le vrai flux OAuth une fois le Worker en place
-    setTimeout(() => finish({
-      name: "Global Payment",
-      email: "global@to-cloud.mg",
-      provider: "google",
-      quota: 100,
-    }), 900);
+    // Le flux OAuth appartient au Worker et n'existe pas encore.
+    setErr(c.googleSoon);
   }
 
-  function withEmail() {
+  async function withEmail() {
     setErr("");
     if (signup && name.trim().length < 2) return setErr(c.errName);
     if (!/^\S+@\S+\.\S+$/.test(email)) return setErr(c.errEmail);
     if (pass.length < 8) return setErr(c.errPass);
+
     setBusy("email");
-    setTimeout(() => finish({
-      name: signup ? name.trim() : email.split("@")[0],
-      email: email.trim(),
-      provider: "email",
-      quota: 100,
-    }), 900);
+    try {
+      const user = signup
+        ? await apiRegister(name.trim(), email.trim(), pass)
+        : await apiLogin(email.trim(), pass);
+      onDone(user);
+    } catch (e) {
+      setErr(e.message || c.errNetwork);
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
@@ -123,8 +122,7 @@ export default function Auth({ onDone, lang = "fr" }) {
 
             <button onClick={withGoogle} disabled={!!busy}
               className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl mb-5 active:opacity-70"
-              style={{ background: T.card, border: `1.5px solid ${T.line}`,
-                       opacity: busy && busy !== "google" ? 0.5 : 1 }}>
+              style={{ background: T.card, border: `1.5px solid ${T.line}`, opacity: 0.6 }}>
               {busy === "google"
                 ? <Loader2 size={20} color={T.violet} className="tc-spin" />
                 : <GoogleMark />}
