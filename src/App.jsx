@@ -10,7 +10,7 @@ import {
 import Auth from "./Auth.jsx";
 import InstallBanner from "./InstallBanner.jsx";
 import { load, save } from "./lib/storage.js";
-import { supabase, profile } from "./lib/api.js";
+import { supabase, profile, CONFIGURED, MISSING } from "./lib/api.js";
 import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
   upload, downloadToDisk, removeFile, objectUrl, logout,
@@ -2109,6 +2109,7 @@ export default function ToCloud() {
   /* Supabase detient la session : on l'ecoute au lieu de la deviner. Cela
      couvre aussi le retour du parcours Google, qui arrive par redirection. */
   useEffect(() => {
+    if (!CONFIGURED) { setReady(true); return; }
     let alive = true;
     const sync = async () => {
       const p = await profile().catch(() => null);
@@ -2170,6 +2171,32 @@ export default function ToCloud() {
     setUser(null);
     setView("home");
     setCat(null);
+  }
+
+  /* Mieux vaut dire ce qui manque que laisser une page blanche. */
+  if (!CONFIGURED) {
+    return (
+      <div style={{ background: T.bg, fontFamily: "'Inter Tight', system-ui, sans-serif" }}
+           className="w-full min-h-screen flex items-center justify-center px-6">
+        <div style={{ background: T.card, border: `2px solid ${T.gold}` }}
+             className="w-full max-w-md rounded-3xl p-7 text-center">
+          <Logo size={64} />
+          <h1 style={{ color: T.text, fontFamily: DISPLAY }}
+              className="text-xl font-bold uppercase mt-4 mb-2">Configuration incomplete</h1>
+          <p style={{ color: T.mute }} className="text-sm leading-snug mb-5">
+            Ces variables d'environnement doivent etre definies sur Cloudflare Pages,
+            puis le site redeploye.
+          </p>
+          <div style={{ background: T.sunken }} className="rounded-2xl p-4 text-left">
+            {MISSING.map(v => (
+              <div key={v} style={{ color: T.rose, fontFamily: MONO }} className="text-sm py-1">
+                {v}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!ready) {

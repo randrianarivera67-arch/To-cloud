@@ -1,12 +1,32 @@
 import { createClient } from "@supabase/supabase-js";
 
-export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-  { auth: { persistSession: true, autoRefreshToken: true } }
-);
+const WORKER_URL = import.meta.env.VITE_API_URL;
 
-export const WORKER = import.meta.env.VITE_API_URL;
+const URL_ = import.meta.env.VITE_SUPABASE_URL;
+const KEY_ = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+/**
+ * Vrai quand les trois variables sont en place.
+ *
+ * Sans ce garde-fou, createClient leve une exception au chargement du module,
+ * donc avant que React ne rende quoi que ce soit : l'ecran reste blanc et rien
+ * n'indique ce qui manque.
+ */
+export const CONFIGURED = Boolean(URL_ && KEY_ && WORKER_URL);
+
+export const supabase = CONFIGURED
+  ? createClient(URL_, KEY_, { auth: { persistSession: true, autoRefreshToken: true } })
+  : null;
+
+export const WORKER = WORKER_URL;
+
+export const MISSING = [
+  !URL_ && "VITE_SUPABASE_URL",
+  !KEY_ && "VITE_SUPABASE_ANON_KEY",
+  !WORKER_URL && "VITE_API_URL",
+].filter(Boolean);
+
+
 
 /** Jeton courant, transmis au Worker pour qu'il verifie qui appelle. */
 export async function token() {
