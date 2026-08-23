@@ -2,6 +2,11 @@
   "appId": "mg.tocloud.app",
   "appName": "To-cloud",
   "webDir": "dist",
+  "server": {
+    "url": "https://to-cloud.pages.dev",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
   "android": {
     "allowMixedContent": false
   }
