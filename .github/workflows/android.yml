@@ -39,6 +39,10 @@ jobs:
           npx cap add android || npx cap sync android
           npx cap sync android
 
+      # Icone et ecran de demarrage a partir de resources/
+      - name: Generer les icones
+        run: npx --yes @capacitor/assets generate --android --iconBackgroundColor "#F6F4FB" --splashBackgroundColor "#F6F4FB"
+
       - name: Compiler l'APK de debogage
         run: ./gradlew assembleDebug --no-daemon
         working-directory: android

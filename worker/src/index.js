@@ -8,17 +8,41 @@ import {
 
 /* ── reponses ─────────────────────────────────────────────────────────── */
 
-const cors = env => ({
-  "access-control-allow-origin": env.ALLOWED_ORIGIN || "*",
+/**
+ * Origines autorisees.
+ *
+ * L'APK ne sert pas depuis le domaine du site : Capacitor charge les pages
+ * depuis https://localhost (ou capacitor://localhost selon la version). Sans
+ * ces entrees, chaque appel echoue avec « Failed to fetch ».
+ */
+const ORIGINS = [
+  "https://localhost",
+  "capacitor://localhost",
+  "http://localhost",
+  "http://localhost:5173",
+  "http://localhost:4173",
+];
+
+const corsFor = (env, request) => {
+  const origin = request?.headers.get("origin") || "";
+  const allowed = [env.ALLOWED_ORIGIN, ...ORIGINS].filter(Boolean);
+  return allowed.includes(origin) ? origin : (env.ALLOWED_ORIGIN || "*");
+};
+
+const cors = (env, request) => ({
+  "access-control-allow-origin": corsFor(env, request),
   "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
   "access-control-allow-headers": "authorization,content-type",
   "access-control-max-age": "86400",
+  "vary": "origin",
 });
+
+let CURRENT = null;   // requete en cours, pour connaitre l'origine appelante
 
 const json = (env, data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json", ...cors(env) },
+    headers: { "content-type": "application/json", ...cors(env, CURRENT) },
   });
 
 const fail = (env, msg, status = 400) => json(env, { error: msg }, status);
@@ -248,7 +272,7 @@ async function download(env, request, id, idx) {
       "content-type": "application/octet-stream",
       "content-length": String(chunk.s),
       "cache-control": "private, max-age=600",
-      ...cors(env),
+      ...cors(env, request),
     },
   });
 }
@@ -442,7 +466,8 @@ async function serveShare(env, request, userId, id) {
 
 export default {
   async fetch(request, env) {
-    if (request.method === "OPTIONS") return new Response(null, { headers: cors(env) });
+    CURRENT = request;
+    if (request.method === "OPTIONS") return new Response(null, { headers: cors(env, request) });
 
     const { pathname } = new URL(request.url);
     const seg = pathname.split("/").filter(Boolean);   // ["api", ...]
