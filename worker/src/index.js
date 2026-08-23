@@ -313,6 +313,29 @@ async function serveShare(env, request, shareId) {
 /* ─────────── routeur ─────────── */
 
 export default {
+  /**
+   * Reveil quotidien.
+   *
+   * Un projet Supabase gratuit se met en pause apres sept jours sans trafic, et
+   * il faut alors le relancer a la main : l'application semblerait simplement
+   * cassee. Une requete legere par jour suffit a l'en empecher.
+   */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil((async () => {
+      try {
+        const res = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=id&limit=1`, {
+          headers: {
+            apikey: env.SUPABASE_SERVICE_KEY,
+            authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+        });
+        console.log(`Reveil Supabase : ${res.status}`);
+      } catch (e) {
+        console.log(`Reveil Supabase echoue : ${e.message}`);
+      }
+    })());
+  },
+
   async fetch(request, env) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: cors(env, request) });

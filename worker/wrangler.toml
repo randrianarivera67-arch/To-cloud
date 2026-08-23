@@ -6,10 +6,17 @@ keep_vars = true
 # Secrets a definir dans le tableau de bord (type Secret, pas Text) :
 #   TELEGRAM_BOT_TOKENS    token1,token2,token3
 #   TELEGRAM_CHANNEL_ID    -100xxxxxxxxxx
-#   SUPABASE_JWT_SECRET    Supabase → Settings → API → JWT Secret
-#   SUPABASE_ANON_KEY      Supabase → Settings → API → anon public
-#   SUPABASE_SERVICE_KEY   Supabase → Settings → API → service_role
+#   SUPABASE_ANON_KEY      Supabase → API Keys → publishable
+#   SUPABASE_SERVICE_KEY   Supabase → API Keys → secret
+#
+# SUPABASE_JWT_SECRET n'est plus necessaire : les jetons sont verifies avec les
+# cles publiques (JWKS). Il ne sert que pour les anciens projets en HS256.
 
 [vars]
 SUPABASE_URL = "https://drbznjjwqhibvnnbkkul.supabase.co"
 ALLOWED_ORIGIN = "https://to-cloud.pages.dev"
+
+# Sans trafic pendant sept jours, Supabase met le projet en pause et il faut le
+# reveiller a la main. Une requete quotidienne suffit a l'eviter.
+[triggers]
+crons = ["17 3 * * *"]
