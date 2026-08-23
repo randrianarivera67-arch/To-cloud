@@ -66,6 +66,8 @@ const STR = {
     empty: "Cette catégorie est vide", emptySub: "Touchez le bouton d'envoi pour commencer.",
     uploading: "Envoi en cours", uploaded: "Envoi terminé", saved: "Enregistré",
     speed: "Débit", nodes: "Nœuds actifs", freeSpace: "libre",
+    more: "Plus d'actions",
+    bulkNote: "L'action s'applique à tous les fichiers sélectionnés.",
     queued: "En attente",
     defaultFolders: "Par catégorie", myFolders: "Mes dossiers",
     move: "Déplacer", rootFolder: "Racine de la catégorie",
@@ -127,6 +129,8 @@ const STR = {
     empty: "Mbola foana ity sokajy ity", emptySub: "Tsindrio ny bokotra fandefasana.",
     uploading: "Alefa ankehitriny", uploaded: "Vita ny fandefasana", saved: "Voatahiry",
     speed: "Hafainganana", nodes: "Node mavitrika", freeSpace: "malalaka",
+    more: "Hetsika hafa",
+    bulkNote: "Mihatra amin'ny rakitra voafidy rehetra ny hetsika.",
     queued: "Miandry",
     defaultFolders: "Araka ny sokajy", myFolders: "Ny lahatahiriko",
     move: "Afindra", rootFolder: "Fototry ny sokajy",
@@ -188,6 +192,8 @@ const STR = {
     empty: "This category is empty", emptySub: "Tap the upload button to start.",
     uploading: "Uploading", uploaded: "Upload complete", saved: "Stored",
     speed: "Throughput", nodes: "Active nodes", freeSpace: "free",
+    more: "More actions",
+    bulkNote: "The action applies to every selected file.",
     queued: "Queued",
     defaultFolders: "By category", myFolders: "My folders",
     move: "Move", rootFolder: "Category root",
@@ -403,12 +409,21 @@ const TopBar = ({ title, onBack }) => (
 );
 
 const Sheet = ({ open, onClose, children }) => {
+  /* le fond ne doit pas defiler derriere la feuille, sinon elle parait
+     se decrocher pendant qu'on la lit */
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
   if (!open) return null;
   return (
-    <div className="absolute inset-0 z-50 flex items-end"
+    <div className="fixed inset-0 z-50 flex items-end justify-center"
          style={{ background: "rgba(23,20,42,0.45)" }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.bg }}
-           className="w-full rounded-t-3xl pt-3 pb-8">
+      <div onClick={e => e.stopPropagation()} style={{ background: T.bg, maxHeight: "88vh" }}
+           className="w-full max-w-md rounded-t-3xl pt-3 pb-8 overflow-y-auto">
         <div style={{ background: T.line }} className="w-10 h-1 rounded-full mx-auto mb-4" />
         {children}
       </div>
@@ -748,7 +763,6 @@ function Drawer({ open, onClose, go, t }) {
         </Panel>
 
         <nav className="flex-1">
-          <NavRow c={T.gold}   Icon={Sparkles} title={t.clean} sub={t.cleanSub} onClick={() => go("clean")} />
           <NavRow c={T.rose}   Icon={Trash2} title={t.trash} sub="20 Mo" onClick={() => go("trash")} />
           <NavRow c={T.violet} Icon={Settings} title={t.settings} onClick={() => go("settings")} />
           <NavRow c={T.blue}   Icon={HelpCircle} title={t.help} onClick={() => go("help")} />
@@ -943,17 +957,6 @@ function SettingsView({ onBack, go, lang, t }) {
 }
 
 /* ─────────── pages ─────────── */
-const CleanView = ({ onBack, t }) => (
-  <div className="pb-10">
-    <TopBar title={t.clean} onBack={onBack} />
-    <Panel className="mx-3 p-8 text-center">
-      <Sparkles size={38} color={T.faint} strokeWidth={1.6} className="mx-auto mb-4" />
-      <p style={{ color: T.text }} className="text-base font-semibold mb-1">{t.soon}</p>
-      <p style={{ color: T.mute }} className="text-sm leading-snug">{t.cleanSoon}</p>
-    </Panel>
-  </div>
-);
-
 /* ─────────── trash ─────────── */
 function TrashView({ onBack, t }) {
   const [files, setFiles] = useState([]);
@@ -1279,6 +1282,7 @@ function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang
   const [busy, setBusy] = useState(false);
   const [moving, setMoving] = useState(null);
   const [up, setUp] = useState(false);
+  const [bulk, setBulk] = useState(false);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("recent");   // recent | name | size
 
@@ -1411,6 +1415,13 @@ function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang
           </button>
           <button aria-label={t.del} className="p-2" disabled={busy} onClick={() => wipe(sel)}>
             <Trash2 size={22} color={T.rose} />
+          </button>
+          <button aria-label={t.more} className="p-2"
+                  onClick={() => {
+                    const one = items.find(f => f.id === sel[0]);
+                    if (sel.length === 1 && one) setMenu(one); else setBulk(true);
+                  }}>
+            <MoreVertical size={22} color={T.text} />
           </button>
         </div>
       ) : (
@@ -1574,6 +1585,22 @@ function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang
                 onShare={() => { const f = menu; setMenu(null); doShare(f); }}
                 onMove={() => { const f = menu; setMenu(null); setMoving(f); }}
                 onDelete={() => { const f = menu; setMenu(null); wipe([f.id]); }} />
+
+      <Sheet open={bulk} onClose={() => setBulk(false)}>
+        <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
+            className="text-lg font-bold uppercase px-6 pb-1">
+          {sel.length} {t.selected}
+        </h2>
+        <p style={{ color: T.mute }} className="text-sm px-6 pb-4">{t.bulkNote}</p>
+        <Panel className="mx-3 overflow-hidden mb-3">
+          <Row Icon={Download} title={t.download}
+               onClick={() => { setBulk(false); sel.forEach(id => downloadToDisk(id)); }} />
+        </Panel>
+        <Panel className="mx-3 overflow-hidden">
+          <Row Icon={Trash2} title={t.del} danger
+               onClick={() => { setBulk(false); wipe(sel); }} />
+        </Panel>
+      </Sheet>
 
       <MovePicker open={!!moving} folders={meta.folders} cat={cat} t={t}
                   current={moving?.folder || null}
@@ -1802,6 +1829,33 @@ export default function ToCloud() {
   const go = v => { setDrawer(false); setView(v); };
   const home = () => { setView("home"); setCat(null); setFolder(null); };
 
+  /* Chaque ecran empile une entree d'historique. Sans cela, le bouton retour
+     du telephone ferme le site des le premier appui. */
+  const depth = useRef(0);
+  useEffect(() => {
+    const layers =
+      (viewing ? 1 : 0) + (audio ? 1 : 0) + (drawer ? 1 : 0) +
+      (account ? 1 : 0) + (view !== "home" ? 1 : 0);
+
+    if (layers > depth.current) window.history.pushState({ tc: layers }, "");
+    depth.current = layers;
+  }, [view, viewing, audio, drawer, account]);
+
+  useEffect(() => {
+    const back = () => {
+      if (viewing) return setViewing(null);
+      if (audio) return setAudio(null);
+      if (account) return setAccount(false);
+      if (drawer) return setDrawer(false);
+      if (view === "cat" && folder) { setFolder(null); return setView("folders"); }
+      if (view !== "home") return home();
+      // deja a l'accueil : on laisse le navigateur reprendre la main
+      window.history.back();
+    };
+    window.addEventListener("popstate", back);
+    return () => window.removeEventListener("popstate", back);
+  }, [view, viewing, audio, drawer, account, folder]);
+
   function pickLang(code) {
     setLang(code);
     save("tc_lang", code);
@@ -1865,7 +1919,6 @@ export default function ToCloud() {
         {view === "settings"   && <SettingsView onBack={home} go={go} lang={lang} t={t} />}
         {view === "language"   && <LanguageView onBack={() => setView("settings")}
                                                 lang={lang} setLang={pickLang} t={t} />}
-        {view === "clean"      && <CleanView onBack={home} t={t} />}
         {view === "trash"      && <TrashView onBack={home} t={t} />}
         {view === "help"       && <HelpView onBack={home} t={t} />}
         {view === "addAccount" && <AddAccountView onBack={home} user={user} t={t} />}

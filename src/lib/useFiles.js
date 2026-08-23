@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { listFiles } from "./api.js";
+import { load as cacheGet, save as cacheSet } from "./storage.js";
 
 /**
  * Charge les fichiers depuis le Worker.
@@ -43,13 +44,19 @@ export function humanSize(bytes) {
  * forfait mobile, tirer 300 vignettes d'un coup se paie cher pour rien.
  */
 export function useFiles(cat, opts = {}) {
-  const [files, setFiles] = useState([]);
-  const [meta, setMeta] = useState({
+  /* La derniere page vue est gardee localement : au retour, l'ecran s'affiche
+     tout de suite et la requete ne sert qu'a rafraichir. Sur un forfait, ouvrir
+     l'application ne coute alors presque rien. */
+  const key = `tc_cache_${cat || "all"}_${opts.folder || "root"}`;
+  const seed = cacheGet(key, null);
+
+  const [files, setFiles] = useState(() => seed?.files || []);
+  const [meta, setMeta] = useState(() => seed?.meta || {
     quota: 0, used: 0, total: 0, counts: {}, folders: [], trashCount: 0,
   });
   const [cursor, setCursor] = useState(0);
   const [done, setDone] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!seed);
   const [more, setMore] = useState(false);
   const [error, setError] = useState(null);
 
@@ -77,6 +84,14 @@ export function useFiles(cat, opts = {}) {
       });
       setCursor(r.cursor);
       setDone(r.done);
+      if (!append) {
+        const next = {
+          quota: r.quota, used: r.used, total: r.total,
+          counts: r.counts || {}, folders: r.folders || [], trashCount: r.trashCount || 0,
+        };
+        // les vignettes gonflent le cache : on ne garde que la premiere page
+        cacheSet(key, { files: decorate(r.files).slice(0, 12), meta: next });
+      }
     } catch (e) {
       setError(e.message);
     } finally {

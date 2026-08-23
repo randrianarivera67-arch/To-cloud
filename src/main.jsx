@@ -8,3 +8,12 @@ createRoot(document.getElementById("root")).render(
     <App />
   </React.StrictMode>
 );
+
+// Cache des ressources : les visites suivantes ne retelechargent plus le code.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // pas de cache disponible : l'application fonctionne quand meme
+    });
+  });
+}
