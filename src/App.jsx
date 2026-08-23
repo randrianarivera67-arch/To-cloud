@@ -17,6 +17,7 @@ import {
   addFolder, dropFolder, moveFile, shareFile,
 } from "./lib/api.js";
 import AudioPlayer from "./AudioPlayer.jsx";
+import { UploadProvider, UploadStatus, useUploads } from "./UploadQueue.jsx";
 
 /* ─────────── tokens ─────────── */
 const T = {
@@ -65,6 +66,7 @@ const STR = {
     empty: "Cette catégorie est vide", emptySub: "Touchez le bouton d'envoi pour commencer.",
     uploading: "Envoi en cours", uploaded: "Envoi terminé", saved: "Enregistré",
     speed: "Débit", nodes: "Nœuds actifs", freeSpace: "libre",
+    queued: "En attente",
     defaultFolders: "Par catégorie", myFolders: "Mes dossiers",
     move: "Déplacer", rootFolder: "Racine de la catégorie",
     noFolderYet: "Aucun dossier dans cette catégorie. Créez-en un depuis l'écran Dossiers.",
@@ -125,6 +127,7 @@ const STR = {
     empty: "Mbola foana ity sokajy ity", emptySub: "Tsindrio ny bokotra fandefasana.",
     uploading: "Alefa ankehitriny", uploaded: "Vita ny fandefasana", saved: "Voatahiry",
     speed: "Hafainganana", nodes: "Node mavitrika", freeSpace: "malalaka",
+    queued: "Miandry",
     defaultFolders: "Araka ny sokajy", myFolders: "Ny lahatahiriko",
     move: "Afindra", rootFolder: "Fototry ny sokajy",
     noFolderYet: "Tsy misy lahatahiry amin'ity sokajy ity. Mamorona iray ao amin'ny Lahatahiry.",
@@ -185,6 +188,7 @@ const STR = {
     empty: "This category is empty", emptySub: "Tap the upload button to start.",
     uploading: "Uploading", uploaded: "Upload complete", saved: "Stored",
     speed: "Throughput", nodes: "Active nodes", freeSpace: "free",
+    queued: "Queued",
     defaultFolders: "By category", myFolders: "My folders",
     move: "Move", rootFolder: "Category root",
     noFolderYet: "No folder in this category yet. Create one from the Folders screen.",
@@ -843,102 +847,33 @@ const AccountSheet = ({ open, onClose, go, user, onSignOut, t }) => (
 /* ─────────── upload ─────────── */
 
 /**
- * L'envoi part toujours d'un contexte : une categorie, eventuellement un
- * dossier. Demander la categorie apres coup obligeait a deviner, et rendait
- * impossible l'envoi direct dans un dossier.
+ * Ne fait que choisir le fichier : l'envoi est confie a la file d'attente,
+ * qui survit aux changements d'ecran. Rien ne bloque la navigation.
  */
-function UploadSheet({ open, cat, folder, onClose, onDone, t }) {
-  const [file, setFile] = useState(null);
-  const [done, setDone] = useState(0);
-  const [total, setTotal] = useState(1);
-  const [fin, setFin] = useState(false);
-  const [err, setErr] = useState(null);
+function UploadPicker({ open, cat, folder, onClose }) {
+  const { enqueue } = useUploads();
   const inputRef = useRef(null);
   const askedRef = useRef(false);
 
   useEffect(() => {
-    if (!open) {
-      setFile(null); setDone(0); setTotal(1); setFin(false); setErr(null);
-      askedRef.current = false;
-      return;
-    }
+    if (!open) { askedRef.current = false; return; }
     if (askedRef.current || !cat) return;
     askedRef.current = true;
     const el = inputRef.current;
     if (!el) return;
     el.accept = ACCEPT[cat.key] || "*/*";
+    el.multiple = true;
     el.value = "";
     el.click();
   }, [open, cat]);
 
-  async function onFile(e) {
-    const f = e.target.files?.[0];
-    if (!f) { onClose(); return; }
-    setFile(f); setErr(null); setFin(false); setDone(0);
-    try {
-      await upload(f, cat.key, p => { setDone(p.done); setTotal(p.total); }, folder);
-      setFin(true);
-      onDone?.();
-    } catch (e2) {
-      setErr(e2.message);
-    }
+  function onFile(e) {
+    const list = Array.from(e.target.files || []);
+    list.forEach(f => enqueue(f, cat, folder));
+    onClose();
   }
 
-  if (!open || !cat) return null;
-  const accent = err ? T.rose : fin ? T.blue : cat.c;
-
-  return (
-    <>
-      <input ref={inputRef} type="file" hidden onChange={onFile} />
-      {file && (
-        <div className="absolute inset-0 z-50 flex items-end"
-             style={{ background: "rgba(23,20,42,0.45)" }} onClick={fin ? onClose : undefined}>
-          <div onClick={e => e.stopPropagation()}
-               style={{ background: T.card, border: `2px solid ${accent}`, borderBottom: "none" }}
-               className="w-full rounded-t-3xl p-6 pb-9">
-
-            <div className="flex items-center justify-between mb-5">
-              <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
-                  className="text-xl font-bold uppercase">
-                {err ? t.uploadFailed : fin ? t.uploaded : t.uploading}
-              </h2>
-              <button onClick={onClose} aria-label="Fermer"><X size={24} color={T.mute} /></button>
-            </div>
-
-            <div className="flex items-center gap-4 mb-5">
-              <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} />
-              <div className="min-w-0 flex-1">
-                <div style={{ color: T.text }} className="text-base truncate">{file.name}</div>
-                <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
-                  {humanSize(file.size)}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-1.5 mb-4"
-                 style={{ gridTemplateColumns: `repeat(${Math.min(total, 12)}, minmax(0, 1fr))` }}>
-              {Array.from({ length: total }).map((_, i) => (
-                <div key={i} style={{ height: 20, borderRadius: 6,
-                  background: i < done ? cat.c : T.sunken, transition: "background 180ms ease" }} />
-              ))}
-            </div>
-
-            {err ? (
-              <p style={{ color: T.rose }} className="text-sm">{err}</p>
-            ) : (
-              <div className="flex items-center justify-between">
-                <span style={{ color: fin ? T.blue : T.mute, fontFamily: MONO }} className="text-xs">
-                  {fin ? t.saved.toUpperCase()
-                       : `${String(Math.round(done / total * 100)).padStart(2, "0")}%`}
-                </span>
-                {fin && <Check size={20} color={T.blue} />}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </>
-  );
+  return <input ref={inputRef} type="file" hidden onChange={onFile} />;
 }
 
 /* ─────────── language ─────────── */
@@ -1338,16 +1273,14 @@ const SearchBar = ({ value, onChange, accent = T.violet, autoFocus, t }) => (
 );
 
 /* ─────────── category ─────────── */
-const PAGE = 10;
-
 function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang }) {
   const [sel, setSel] = useState([]);
   const [menu, setMenu] = useState(null);
   const [busy, setBusy] = useState(false);
   const [moving, setMoving] = useState(null);
+  const [up, setUp] = useState(false);
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("recent");   // recent | name | size
-  const [shown, setShown] = useState(PAGE);
 
   const isGallery = cat.key === "sary";
   const { files: raw, meta, loading, more, done, error, refresh, loadMore } =
@@ -1425,6 +1358,13 @@ function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang
       setBusy(false);
     }
   }
+
+  /* un envoi termine en arriere-plan doit se voir sans geste de l'utilisateur */
+  const { doneCount } = useUploads();
+  const seenRef = useRef(doneCount);
+  useEffect(() => {
+    if (doneCount !== seenRef.current) { seenRef.current = doneCount; refresh(); }
+  }, [doneCount, refresh]);
 
   async function doMove(id, dest) {
     setMoving(null);
@@ -1648,9 +1588,7 @@ function CategoryView({ cat, folder, folderName, onBack, onOpen, onPlay, t, lang
         <Upload size={26} color="#FFFFFF" strokeWidth={2.4} />
       </button>
 
-      <UploadSheet open={up} cat={cat} folder={folder} t={t}
-                   onClose={() => setUp(false)}
-                   onDone={() => { setUp(false); refresh(); }} />
+      <UploadPicker open={up} cat={cat} folder={folder} onClose={() => setUp(false)} />
     </div>
   );
 }
@@ -1881,6 +1819,7 @@ export default function ToCloud() {
   }
 
   return (
+    <UploadProvider>
     <div style={{ background: T.bg, fontFamily: "'Inter Tight', system-ui, sans-serif" }}
          className="w-full min-h-screen flex justify-center">
       <style>{`
@@ -1935,6 +1874,7 @@ export default function ToCloud() {
         <Drawer open={drawer} onClose={() => setDrawer(false)} go={go} t={t} />
         <AccountSheet open={account} onClose={() => setAccount(false)} go={go}
                       user={user} onSignOut={signOut} t={t} />
+        <UploadStatus t={t} bottom={96} />
         <InstallBanner lang={lang} />
         {viewing && (
           <Viewer file={viewing} cat={CATS.find(c => c.key === viewing.cat)}
@@ -1947,5 +1887,6 @@ export default function ToCloud() {
         )}
       </div>
     </div>
+    </UploadProvider>
   );
 }
