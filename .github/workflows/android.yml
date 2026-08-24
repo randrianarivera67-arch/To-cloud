@@ -9,6 +9,8 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # necessaire pour creer la publication
 
     steps:
       - uses: actions/checkout@v4
@@ -64,12 +66,34 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon
         working-directory: android
 
-      - name: Publier l'APK
+      - name: Preparer l'APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk to-cloud.apk
+
+      - name: Publier l'APK (artefact)
         uses: actions/upload-artifact@v4
         with:
           name: to-cloud-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: to-cloud.apk
           retention-days: 30
+
+      # Une publication donne une adresse fixe et telechargeable sans compte
+      # GitHub. Les artefacts, eux, exigent une connexion : la banniere de
+      # l'application ne pourrait pas s'en servir.
+      - name: Publier la version
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: APK ${{ github.run_number }}
+          body: |
+            Version de test de To-cloud.
+
+            Installation : autoriser les sources inconnues, puis ouvrir le
+            fichier. L'application se met a jour toute seule ensuite ; une
+            reinstallation n'est necessaire que si un composant natif change.
+          files: to-cloud.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Version signee : uniquement si un certificat est fourni.
       # `secrets` ne s'utilise pas dans `if`, on passe donc par une sortie d'etape.

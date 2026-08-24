@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Mail, Lock, User as UserIcon, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
 import { T, DISPLAY, MONO, halo, Logo, GlowFrame } from "./theme.jsx";
 import { register as apiRegister, login as apiLogin,
@@ -85,9 +85,9 @@ export default function Auth({ onDone, lang = "fr" }) {
     setBusy("google");
     try {
       await loginWithGoogle();
-      /* Sur mobile, la page part dans le navigateur du systeme et l'utilisateur
-         revient par lien profond : la roue n'a plus de raison de tourner. */
-      if (isNative()) setBusy(null);
+      /* La roue continue de tourner : sur mobile pendant le detour par le
+         navigateur, sur le web pendant la redirection. Elle s'arrete si
+         l'utilisateur revient sans s'etre connecte — voir l'effet ci-dessous. */
     } catch (e) {
       setErr(e.message === "APP_TOO_OLD" ? c.appTooOld : e.message);
       setBusy(null);
@@ -115,6 +115,20 @@ export default function Auth({ onDone, lang = "fr" }) {
       setBusy(null);
     }
   }
+
+  /* L'utilisateur peut fermer l'onglet Google sans aller au bout. On rend alors
+     la main au bout de quelques secondes, plutot que de laisser une roue
+     tourner sans fin. */
+  useEffect(() => {
+    if (busy !== "google" || !isNative()) return;
+    const onBack = () => {
+      if (document.visibilityState === "visible") {
+        setTimeout(() => setBusy(b => (b === "google" ? null : b)), 2500);
+      }
+    };
+    document.addEventListener("visibilitychange", onBack);
+    return () => document.removeEventListener("visibilitychange", onBack);
+  }, [busy]);
 
   async function forgot() {
     setErr(""); setNote("");

@@ -3,9 +3,10 @@ import { Download, Smartphone, Check } from "lucide-react";
 import { T, DISPLAY, MONO, halo } from "./theme.jsx";
 import { load, save } from "./lib/storage.js";
 
-/* Emplacement du fichier APK une fois qu'il est publie.
-   Le mettre dans public/downloads/ ou pointer vers une release GitHub. */
-export const APK_URL = "/downloads/to-cloud.apk";
+/* La derniere publication GitHub. Cette adresse ne change jamais : elle suit
+   automatiquement la version la plus recente, et se telecharge sans compte. */
+export const APK_URL =
+  "https://github.com/randrianarivera67-arch/To-cloud/releases/latest/download/to-cloud.apk";
 export const APK_SIZE = "12,4 Mo";
 export const APK_VERSION = "1.0.0";
 
@@ -87,7 +88,7 @@ export default function InstallBanner({ lang = "fr" }) {
           </div>
 
           {!just && (
-            <a href={APK_URL} download onClick={grab}
+            <a href={APK_URL} target="_blank" rel="noopener" onClick={grab}
                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full shrink-0 active:opacity-80"
                style={{ background: `linear-gradient(135deg, ${T.blue}, ${T.violet})` }}>
               <Download size={17} color="#FFFFFF" strokeWidth={2.4} />
