@@ -3,6 +3,7 @@ import { Mail, Lock, User as UserIcon, Eye, EyeOff, ArrowRight, Loader2 } from "
 import { T, DISPLAY, MONO, halo, Logo, GlowFrame } from "./theme.jsx";
 import { register as apiRegister, login as apiLogin,
          loginWithGoogle, resetPassword } from "./lib/api.js";
+import { isNative } from "./lib/native.js";
 
 const COPY = {
   fr: {
@@ -22,6 +23,7 @@ const COPY = {
     checkMail: "Compte cree. Ouvrez votre boite mail pour confirmer l'adresse.",
     resetSent: "Un lien de reinitialisation vient de partir par e-mail.",
     errEmailFirst: "Indiquez d'abord votre adresse e-mail.",
+    googleWeb: "Google refuse la connexion depuis l'application. Utilisez votre e-mail ici, ou passez par to-cloud.pages.dev dans votre navigateur.",
   },
   mg: {
     tagline: "500 Go maimaim-poana. Ny rakitrao, na aiza na aiza.",
@@ -40,6 +42,7 @@ const COPY = {
     checkMail: "Voaforona ny kaonty. Sokafy ny mailakao mba hanamafisana.",
     resetSent: "Nalefa amin'ny mailakao ny rohy famerenana.",
     errEmailFirst: "Ampidiro aloha ny adiresy mailakao.",
+    googleWeb: "Tsy ekan'i Google ny fidirana avy ao anaty rindrambaiko. Ampiasao ny mailakao eto, na mandehana amin'ny to-cloud.pages.dev.",
   },
 };
 
@@ -79,6 +82,11 @@ export default function Auth({ onDone, lang = "fr" }) {
 
   async function withGoogle() {
     setErr("");
+    /* Google refuse ses pages de connexion dans une WebView : dans l'APK, le
+       parcours s'interrompt sur « disallowed_useragent ». Mieux vaut le dire
+       que de laisser l'utilisateur buter dessus. */
+    if (isNative()) { setErr(c.googleWeb); return; }
+
     setBusy("google");
     try {
       await loginWithGoogle();   // redirige, puis revient sur l'application
@@ -148,7 +156,7 @@ export default function Auth({ onDone, lang = "fr" }) {
             <button onClick={withGoogle} disabled={!!busy}
               className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl mb-5 active:opacity-70"
               style={{ background: T.card, border: `1.5px solid ${T.line}`,
-                       opacity: busy && busy !== "google" ? 0.5 : 1 }}>
+                       opacity: isNative() ? 0.55 : (busy && busy !== "google" ? 0.5 : 1) }}>
               {busy === "google"
                 ? <Loader2 size={20} color={T.violet} className="tc-spin" />
                 : <GoogleMark />}
