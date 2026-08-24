@@ -3,7 +3,7 @@ import React, {
 } from "react";
 import { X, Check, CircleAlert, ChevronUp, ChevronDown, Upload } from "lucide-react";
 import { T, DISPLAY, MONO, halo } from "./theme.jsx";
-import { upload } from "./lib/api.js";
+import { upload, uploadedParts } from "./lib/api.js";
 
 const Ctx = createContext(null);
 export const useUploads = () => useContext(Ctx);
@@ -34,7 +34,10 @@ export function UploadProvider({ children }) {
 
     try {
       await upload(next.file, next.cat.key, p => {
-        patch(next.id, { done: p.done, total: p.total, percent: p.percent });
+        patch(next.id, {
+          done: p.done, total: p.total, percent: p.percent,
+          ...(p.resumed ? { resumed: true } : {}),
+        });
       }, next.folder);
       patch(next.id, { state: "done", percent: 100 });
       setDoneCount(n => n + 1);
@@ -157,8 +160,9 @@ export function UploadStatus({ t, bottom = 96 }) {
                           className="block text-xs mt-1 truncate">
                       {j.state === "failed" ? j.error
                         : j.state === "done" ? t.saved
-                        : j.state === "waiting" ? t.queued
-                        : `${humanSize(j.size)} · ${j.done}/${j.total}`}
+                        : j.state === "waiting"
+                          ? (uploadedParts(j.file) ? t.willResume : t.queued)
+                        : `${humanSize(j.size)} · ${j.done}/${j.total}${j.resumed ? ` · ${t.resumed}` : ""}`}
                     </span>
                     {j.state === "running" && (
                       <span style={{ background: T.sunken }}

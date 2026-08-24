@@ -253,6 +253,46 @@ async function makeThumb(file, max = 240) {
   }
 }
 
+/**
+ * Empreinte d'un fichier, stable d'une session a l'autre.
+ *
+ * Nom, taille et date de modification suffisent : deux fichiers differents ne
+ * se confondront pas, et le meme fichier repris plus tard sera reconnu.
+ */
+const fingerprint = f => `tc_up_${f.name}|${f.size}|${f.lastModified}`;
+
+const SESSION_TTL = 7 * 86400_000;
+
+function loadSession(file) {
+  const s = load(fingerprint(file), null);
+  if (!s) return { parts: {} };
+  // au-dela d'une semaine, les morceaux risquent d'avoir ete purges du canal
+  if (Date.now() - (s.at || 0) > SESSION_TTL) {
+    drop(fingerprint(file));
+    return { parts: {} };
+  }
+  return s;
+}
+
+const saveSession = (file, session) =>
+  save(fingerprint(file), { ...session, at: Date.now() });
+
+/** Combien de morceaux sont deja en place pour ce fichier. */
+export function uploadedParts(file) {
+  return Object.keys(loadSession(file).parts || {}).length;
+}
+
+/**
+ * Envoi decoupe, reprenable.
+ *
+ * Chaque morceau accepte par Telegram est note localement. Si la connexion
+ * tombe au quatorzieme sur vingt-quatre, la reprise repart du quinzieme au lieu
+ * de tout recommencer — ce qui, sur un forfait mobile, change beaucoup.
+ *
+ * Limite a connaitre : le navigateur ne peut pas conserver un fichier choisi
+ * entre deux ouvertures de l'application. Apres une fermeture, il faut le
+ * reselectionner ; les morceaux deja envoyes sont alors reconnus et sautes.
+ */
 export async function upload(file, cat, onProgress, folder) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Session expiree");
@@ -262,23 +302,35 @@ export async function upload(file, cat, onProgress, folder) {
     throw new Error("Quota depasse — contactez l'administrateur");
   }
 
-  const t = await token();
   const parts = Math.max(1, Math.ceil(file.size / CHUNK));
-  const uploaded = [];
+  const session = loadSession(file);
+  session.parts = session.parts || {};
+
+  const already = Object.keys(session.parts).length;
+  if (already) onProgress?.({ done: already, total: parts, percent: Math.round(already / parts * 100), resumed: true });
 
   for (let i = 0; i < parts; i++) {
+    if (session.parts[i]) continue;   // deja accepte lors d'une tentative precedente
+
+    const jwt = await token();        // relu a chaque morceau : un envoi long depasse la duree d'un jeton
     const slice = file.slice(i * CHUNK, (i + 1) * CHUNK);
+
     const res = await fetch(`${WORKER}/api/upload/chunk?idx=${i}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${t}` },
+      headers: { authorization: `Bearer ${jwt}` },
       body: slice,
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Morceau ${i} refuse`);
-    uploaded.push({ idx: i, ...data });
-    onProgress?.({ done: i + 1, total: parts, percent: Math.round((i + 1) / parts * 100) });
+
+    session.parts[i] = { idx: i, ...data };
+    saveSession(file, session);
+
+    const done = Object.keys(session.parts).length;
+    onProgress?.({ done, total: parts, percent: Math.round(done / parts * 100) });
   }
 
+  const uploaded = Object.values(session.parts).sort((a, b) => a.idx - b.idx);
   const thumb = await makeThumb(file);
 
   const { data: row, error } = await supabase.from("files").insert({
@@ -308,6 +360,7 @@ export async function upload(file, cat, onProgress, folder) {
     throw new Error(cErr.message);
   }
 
+  drop(fingerprint(file));   // la reprise n'a plus lieu d'etre
   return { id: row.id, cat: row.cat };
 }
 
