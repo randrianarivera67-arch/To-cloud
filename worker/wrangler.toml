@@ -16,7 +16,11 @@ keep_vars = true
 SUPABASE_URL = "https://drbznjjwqhibvnnbkkul.supabase.co"
 ALLOWED_ORIGIN = "https://to-cloud.pages.dev"
 
-# Sans trafic pendant sept jours, Supabase met le projet en pause et il faut le
-# reveiller a la main. Une requete quotidienne suffit a l'eviter.
+# Canal ou deposer les sauvegardes. A defaut, le canal principal est utilise ;
+# un canal separe vaut mieux : une sauvegarde perdue avec les fichiers ne sert
+# a rien.
+# BACKUP_CHANNEL_ID = "-100xxxxxxxxxx"
+
+# Reveil quotidien de Supabase, et sauvegarde des metadonnees le dimanche.
 [triggers]
 crons = ["17 3 * * *"]

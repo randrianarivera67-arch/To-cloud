@@ -310,6 +310,77 @@ async function serveShare(env, request, shareId) {
   });
 }
 
+/* ─────────── sauvegarde ─────────── */
+
+/** Lit une table entiere, par pages : PostgREST plafonne les reponses. */
+async function dumpTable(env, table, columns, order) {
+  const rows = [];
+  const page = 1000;
+
+  for (let from = 0; ; from += page) {
+    const res = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/${table}?select=${columns}&order=${order}`,
+      {
+        headers: {
+          apikey: env.SUPABASE_SERVICE_KEY,
+          authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          range: `${from}-${from + page - 1}`,
+          accept: "application/json",
+        },
+      }
+    );
+    if (!res.ok) throw new Error(`${table} : ${res.status}`);
+
+    const batch = await res.json();
+    rows.push(...batch);
+    if (batch.length < page) break;
+  }
+  return rows;
+}
+
+/**
+ * Sauvegarde des metadonnees vers le canal Telegram.
+ *
+ * Les fichiers eux-memes sont deja sur le canal ; ce qui manquerait apres un
+ * incident, c'est la table qui dit quel morceau appartient a quel fichier. Sans
+ * elle, les octets sont toujours la mais plus personne ne sait les rassembler.
+ *
+ * Les vignettes sont exclues : elles pesent plus que tout le reste et ne sont
+ * que decoratives.
+ */
+async function backup(env) {
+  const data = {
+    at: new Date().toISOString(),
+    version: 1,
+    profiles: await dumpTable(env, "profiles", "id,name,quota,used,created_at", "created_at.asc"),
+    folders:  await dumpTable(env, "folders",  "id,user_id,name,created_at", "created_at.asc"),
+    files:    await dumpTable(env, "files",
+                "id,user_id,name,size,cat,folder_id,created_at,deleted_at", "created_at.asc"),
+    // chunks n'a pas de date : on ordonne sur sa cle, sinon la pagination
+    // pourrait renvoyer deux fois la meme ligne
+    chunks:   await dumpTable(env, "chunks",
+                "file_id,idx,tg_file_id,tg_message_id,bot,size", "file_id.asc,idx.asc"),
+  };
+
+  const json = JSON.stringify(data);
+  const gz = new Response(
+    new Blob([json]).stream().pipeThrough(new CompressionStream("gzip"))
+  );
+  const blob = await gz.blob();
+
+  const day = data.at.slice(0, 10);
+  const form = new FormData();
+  form.append("chat_id", env.BACKUP_CHANNEL_ID || env.TELEGRAM_CHANNEL_ID);
+  form.append("document", blob, `to-cloud-backup-${day}.json.gz`);
+  form.append("caption",
+    `Sauvegarde ${day} — ${data.files.length} fichiers, ${data.chunks.length} morceaux`);
+  form.append("disable_notification", "true");
+
+  await tg(bots(env)[0], "sendDocument", form, true);
+
+  return { files: data.files.length, chunks: data.chunks.length, bytes: blob.size };
+}
+
 /* ─────────── routeur ─────────── */
 
 export default {
@@ -322,6 +393,8 @@ export default {
    */
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
+      // 1. Reveil : sans trafic pendant sept jours, le projet gratuit se met en
+      //    pause et l'application semblerait simplement cassee.
       try {
         const res = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=id&limit=1`, {
           headers: {
@@ -332,6 +405,16 @@ export default {
         console.log(`Reveil Supabase : ${res.status}`);
       } catch (e) {
         console.log(`Reveil Supabase echoue : ${e.message}`);
+      }
+
+      // 2. Sauvegarde, une fois par semaine (dimanche). La faire tous les jours
+      //    encombrerait le canal sans rien apporter.
+      if (new Date().getUTCDay() !== 0) return;
+      try {
+        const r = await backup(env);
+        console.log(`Sauvegarde : ${r.files} fichiers, ${r.chunks} morceaux, ${r.bytes} octets`);
+      } catch (e) {
+        console.log(`Sauvegarde echouee : ${e.message}`);
       }
     })());
   },
