@@ -113,8 +113,18 @@ export const DEEP_LINK = "mg.tocloud.app://auth";
  * systeme n'est pas une WebView, il est donc accepte.
  */
 export async function openExternal(url) {
-  const { Browser } = await import("@capacitor/browser");
-  await Browser.open({ url, presentationStyle: "popover" });
+  try {
+    const { Browser } = await import("@capacitor/browser");
+    await Browser.open({ url, presentationStyle: "popover" });
+  } catch (e) {
+    /* Le greffon fait partie de l'APK, pas du site : une application installee
+       avant son ajout ne l'a pas. Le message par defaut — « Browser plugin is
+       not implemented » — n'aide personne. */
+    if (/not implemented|Browser/i.test(e?.message || "")) {
+      throw new Error("APP_TOO_OLD");
+    }
+    throw e;
+  }
 }
 
 export async function closeExternal() {

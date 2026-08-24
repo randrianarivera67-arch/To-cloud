@@ -23,7 +23,7 @@ const COPY = {
     checkMail: "Compte cree. Ouvrez votre boite mail pour confirmer l'adresse.",
     resetSent: "Un lien de reinitialisation vient de partir par e-mail.",
     errEmailFirst: "Indiquez d'abord votre adresse e-mail.",
-    googleWeb: "Google refuse la connexion depuis l'application. Utilisez votre e-mail ici, ou passez par to-cloud.pages.dev dans votre navigateur.",
+    appTooOld: "Cette version de l'application ne gere pas encore la connexion Google. Installez la derniere, ou connectez-vous par e-mail.",
   },
   mg: {
     tagline: "500 Go maimaim-poana. Ny rakitrao, na aiza na aiza.",
@@ -42,7 +42,7 @@ const COPY = {
     checkMail: "Voaforona ny kaonty. Sokafy ny mailakao mba hanamafisana.",
     resetSent: "Nalefa amin'ny mailakao ny rohy famerenana.",
     errEmailFirst: "Ampidiro aloha ny adiresy mailakao.",
-    googleWeb: "Tsy ekan'i Google ny fidirana avy ao anaty rindrambaiko. Ampiasao ny mailakao eto, na mandehana amin'ny to-cloud.pages.dev.",
+    appTooOld: "Mbola tsy mahazaka ny fidirana amin'ny Google ity kinova ity. Apetraho ny farany, na midira amin'ny mailaka.",
   },
 };
 
@@ -89,7 +89,7 @@ export default function Auth({ onDone, lang = "fr" }) {
          revient par lien profond : la roue n'a plus de raison de tourner. */
       if (isNative()) setBusy(null);
     } catch (e) {
-      setErr(e.message);
+      setErr(e.message === "APP_TOO_OLD" ? c.appTooOld : e.message);
       setBusy(null);
     }
   }
