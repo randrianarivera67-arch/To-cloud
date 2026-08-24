@@ -8,5 +8,6 @@ export {
   supabase, CONFIGURED, MISSING, WORKER, token, register, login, loginWithGoogle, resetPassword, logout, profile,
   listFiles, counts, listFolders, folderCounts, addFolder, dropFolder, moveFile,
   removeFile, listTrash, trashStats, restoreFile, purgeFile, emptyTrash,
-  upload, download, downloadToDisk, objectUrl, shareFile, categorize,
+  upload, download, downloadToDisk, objectUrl, streamUrl, forgetStream,
+  shareFile, categorize,
 } from "./db.js";

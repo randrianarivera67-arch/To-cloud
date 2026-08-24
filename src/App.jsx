@@ -14,7 +14,8 @@ import { supabase, profile, CONFIGURED, MISSING } from "./lib/api.js";
 import { onHardwareBack } from "./lib/native.js";
 import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
-  upload, download, downloadToDisk, removeFile, objectUrl, logout, categorize,
+  upload, download, downloadToDisk, removeFile, objectUrl, streamUrl, forgetStream,
+  logout, categorize,
   listTrash, restoreFile, purgeFile, emptyTrash,
   addFolder, dropFolder, moveFile, shareFile, folderCounts, trashStats,
 } from "./lib/api.js";
@@ -595,18 +596,32 @@ function Viewer({ file, cat, siblings = [], onNavigate, onClose, t }) {
     let dead = false;
     setSrc(null); setBlob(null); setLoad(0); setErr(null); setZoom(1);
 
-    download(file.id, p => { if (!dead) setLoad(p.done); })
-      .then(({ blob: b }) => {
+    /* La video se lit par tranches : inutile — et tres long — de tout
+       telecharger avant la premiere image. Les autres types ont besoin du
+       fichier complet (zoom, rendu PDF, decodage). */
+    const streamable = file.cat === "video";
+
+    (async () => {
+      try {
+        if (streamable) {
+          const url = await streamUrl(file.id);
+          if (url) { if (!dead) setSrc(url); return; }
+          // service worker absent : on retombe sur le chemin classique
+        }
+        const { blob: b } = await download(file.id, p => { if (!dead) setLoad(p.done); });
         if (dead) return;
         const u = URL.createObjectURL(b);
         urlRef.current = u;
         setBlob(b);
         setSrc(u);
-      })
-      .catch(e => { if (!dead) setErr(e.message); });
+      } catch (e) {
+        if (!dead) setErr(e.message);
+      }
+    })();
 
     return () => {
       dead = true;
+      forgetStream(file.id);
       if (urlRef.current) { URL.revokeObjectURL(urlRef.current); urlRef.current = null; }
     };
   }, [file?.id]);
@@ -662,7 +677,7 @@ function Viewer({ file, cat, siblings = [], onNavigate, onClose, t }) {
         <div className="flex-1 flex flex-col items-center justify-center px-8">
           <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={72} icon={34} />
           <p style={{ color: dark ? "#FFFFFF" : T.text }} className="text-base font-semibold mt-5 mb-2">
-            {file.parts > 1 ? t.assembling : t.loading}
+            {k === "video" ? t.loading : (file.parts > 1 ? t.assembling : t.loading)}
           </p>
           {file.parts > 1 && (
             <>
@@ -754,7 +769,8 @@ function Viewer({ file, cat, siblings = [], onNavigate, onClose, t }) {
     return (
       <Chrome>
         <div className="flex-1 flex items-center justify-center px-4">
-          <video src={src} controls autoPlay playsInline
+          <video src={src} controls autoPlay playsInline preload="metadata"
+                 onError={() => setErr(t.loadFailed)}
                  className="w-full max-h-full rounded-2xl" style={{ background: "#000" }} />
         </div>
       </Chrome>

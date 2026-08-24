@@ -4,7 +4,7 @@ import {
   ListMusic, Volume2, Download, Music
 } from "lucide-react";
 import { T, DISPLAY, MONO, halo } from "./theme.jsx";
-import { objectUrl, downloadToDisk } from "./lib/api.js";
+import { objectUrl, streamUrl, forgetStream, downloadToDisk } from "./lib/api.js";
 
 const mmss = s => {
   if (!isFinite(s)) return "--:--";
@@ -41,16 +41,23 @@ export default function AudioPlayer({ queue, startId, onClose, t }) {
     let dead = false;
     setSrc(null); setErr(null); setLoad(0); setPos(0); setDur(0);
 
-    objectUrl(track.id, p => { if (!dead) setLoad(p.done); })
-      .then(u => {
+    (async () => {
+      try {
+        // un morceau suffit pour demarrer : le reste arrive pendant l'ecoute
+        const streamed = await streamUrl(track.id);
+        if (streamed) { if (!dead) setSrc(streamed); return; }
+
+        const u = await objectUrl(track.id, p => { if (!dead) setLoad(p.done); });
         if (dead) { URL.revokeObjectURL(u); return; }
         if (urlRef.current) URL.revokeObjectURL(urlRef.current);
         urlRef.current = u;
         setSrc(u);
-      })
-      .catch(e => { if (!dead) setErr(e.message); });
+      } catch (e) {
+        if (!dead) setErr(e.message);
+      }
+    })();
 
-    return () => { dead = true; };
+    return () => { dead = true; forgetStream(track.id); };
   }, [track?.id]);
 
   useEffect(() => () => {

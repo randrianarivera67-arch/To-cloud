@@ -411,6 +411,60 @@ export async function downloadToDisk(id, onProgress) {
   return { saved: true };
 }
 
+/**
+ * URL de lecture en continu.
+ *
+ * On confie au service worker la disposition des morceaux et le jeton, puis on
+ * rend une adresse qu'il intercepte. Le lecteur video ou audio la traite comme
+ * un fichier ordinaire : il demande des tranches, l'avance rapide fonctionne,
+ * et rien n'est telecharge en trop.
+ *
+ * Renvoie null si le service worker n'est pas actif — l'appelant retombe alors
+ * sur le telechargement complet.
+ */
+export async function streamUrl(id) {
+  const sw = navigator.serviceWorker?.controller;
+  if (!sw) return null;
+
+  const { data: meta, error } = await supabase
+    .from("files").select("name, size").eq("id", id).single();
+  if (error) throw new Error(error.message);
+
+  const { data: chunks, error: cErr } = await supabase
+    .from("chunks").select("idx, size").eq("file_id", id).order("idx");
+  if (cErr) throw new Error(cErr.message);
+  if (!chunks.length) throw new Error("Aucun morceau pour ce fichier");
+
+  // la somme des morceaux fait foi : une taille declaree fausse ferait
+  // reclamer au lecteur des octets qui n'existent pas
+  const size = chunks.reduce((t, c) => t + Number(c.size), 0);
+  const jwt = await token();
+
+  await new Promise((resolve, reject) => {
+    const ch = new MessageChannel();
+    const timer = setTimeout(() => reject(new Error("Service worker sans reponse")), 4000);
+    ch.port1.onmessage = e => {
+      clearTimeout(timer);
+      e.data?.ok ? resolve() : reject(new Error("Service worker muet"));
+    };
+    sw.postMessage({
+      type: "tc-file",
+      id, size,
+      api: WORKER,
+      mime: mimeOf(meta.name),
+      token: jwt,
+      chunks: chunks.map(c => ({ idx: c.idx, size: Number(c.size) })),
+    }, [ch.port2]);
+  });
+
+  return `/tc-stream/${id}`;
+}
+
+/** Libere la place occupee par un media qu'on ne regarde plus. */
+export function forgetStream(id) {
+  navigator.serviceWorker?.controller?.postMessage({ type: "tc-forget", id });
+}
+
 export async function objectUrl(id, onProgress) {
   const { blob } = await download(id, onProgress);
   return URL.createObjectURL(blob);
