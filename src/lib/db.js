@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { isNative, saveNative, shareSaved } from "./native.js";
+import { isNative, saveNative, shareSaved, openExternal, closeExternal, DEEP_LINK } from "./native.js";
 
 const WORKER_URL = import.meta.env.VITE_API_URL;
 
@@ -53,11 +53,41 @@ export async function login(email, password) {
 }
 
 export async function loginWithGoogle() {
+  /* Dans l'APK, le parcours se deroule dans le navigateur du systeme, puis
+     Android nous rend la main par lien profond. Sur le web, la redirection
+     habituelle suffit. */
+  if (isNative()) {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: DEEP_LINK, skipBrowserRedirect: true },
+    });
+    if (error) throw new Error(error.message);
+    await openExternal(data.url);
+    return;
+  }
+
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: { redirectTo: window.location.origin },
   });
   if (error) throw new Error(error.message);
+}
+
+/**
+ * Termine la connexion apres le retour du navigateur.
+ *
+ * Le code recu ne vaut qu'une fois et n'est utilisable que par l'appareil qui a
+ * lance la demande : c'est ce qui rend le detour par le navigateur sur.
+ */
+export async function finishOAuth(url) {
+  const u = new URL(url);
+  const code = u.searchParams.get("code");
+  if (!code) return false;
+
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  await closeExternal();
+  if (error) throw new Error(error.message);
+  return true;
 }
 
 export async function resetPassword(email) {

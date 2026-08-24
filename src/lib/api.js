@@ -5,7 +5,7 @@
  * que reexporter, pour que le reste de l'application reste inchange.
  */
 export {
-  supabase, CONFIGURED, MISSING, WORKER, token, register, login, loginWithGoogle, resetPassword, logout, profile,
+  supabase, CONFIGURED, MISSING, WORKER, token, register, login, loginWithGoogle, finishOAuth, resetPassword, logout, profile,
   listFiles, counts, listFolders, folderCounts, addFolder, dropFolder, moveFile,
   removeFile, listTrash, trashStats, restoreFile, purgeFile, emptyTrash,
   upload, uploadedParts, download, downloadToDisk, objectUrl, streamUrl, forgetStream,

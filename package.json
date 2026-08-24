@@ -19,7 +19,8 @@
     "pdfjs-dist": "^4.9.155",
     "@capacitor/filesystem": "^6.0.2",
     "@capacitor/share": "^6.0.3",
-    "@capacitor/app": "^6.0.2"
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/browser": "^6.0.3"
   },
   "devDependencies": {
     "@capacitor/android": "^6.2.0",

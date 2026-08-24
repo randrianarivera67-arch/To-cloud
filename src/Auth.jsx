@@ -82,14 +82,12 @@ export default function Auth({ onDone, lang = "fr" }) {
 
   async function withGoogle() {
     setErr("");
-    /* Google refuse ses pages de connexion dans une WebView : dans l'APK, le
-       parcours s'interrompt sur « disallowed_useragent ». Mieux vaut le dire
-       que de laisser l'utilisateur buter dessus. */
-    if (isNative()) { setErr(c.googleWeb); return; }
-
     setBusy("google");
     try {
-      await loginWithGoogle();   // redirige, puis revient sur l'application
+      await loginWithGoogle();
+      /* Sur mobile, la page part dans le navigateur du systeme et l'utilisateur
+         revient par lien profond : la roue n'a plus de raison de tourner. */
+      if (isNative()) setBusy(null);
     } catch (e) {
       setErr(e.message);
       setBusy(null);
@@ -157,7 +155,7 @@ export default function Auth({ onDone, lang = "fr" }) {
             <button onClick={withGoogle} disabled={!!busy}
               className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl mb-5 active:opacity-70"
               style={{ background: T.card, border: `1.5px solid ${T.line}`,
-                       opacity: isNative() ? 0.55 : (busy && busy !== "google" ? 0.5 : 1) }}>
+                       opacity: busy && busy !== "google" ? 0.5 : 1 }}>
               {busy === "google"
                 ? <Loader2 size={20} color={T.violet} className="tc-spin" />
                 : <GoogleMark />}

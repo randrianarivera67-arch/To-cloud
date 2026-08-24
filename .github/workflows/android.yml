@@ -52,6 +52,10 @@ jobs:
           npx cap add android || npx cap sync android
           npx cap sync android
 
+      # Le retour de connexion Google passe par mg.tocloud.app://
+      - name: Declarer le schema de lien profond
+        run: node scripts/patch-manifest.mjs
+
       # Icone et ecran de demarrage a partir de resources/
       - name: Generer les icones
         run: npx --yes @capacitor/assets generate --android --iconBackgroundColor "#F6F4FB" --splashBackgroundColor "#F6F4FB"

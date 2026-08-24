@@ -99,3 +99,47 @@ export async function onHardwareBack(handler) {
     return () => {};
   }
 }
+
+/* ─────────── connexion Google ─────────── */
+
+/** Adresse de retour propre a l'application, declaree dans le manifeste Android. */
+export const DEEP_LINK = "mg.tocloud.app://auth";
+
+/**
+ * Ouvre une page dans le navigateur du systeme.
+ *
+ * Google refuse ses pages de connexion a l'interieur d'une WebView : le
+ * parcours s'arrete sur « disallowed_useragent ». Un onglet du navigateur
+ * systeme n'est pas une WebView, il est donc accepte.
+ */
+export async function openExternal(url) {
+  const { Browser } = await import("@capacitor/browser");
+  await Browser.open({ url, presentationStyle: "popover" });
+}
+
+export async function closeExternal() {
+  try {
+    const { Browser } = await import("@capacitor/browser");
+    await Browser.close();
+  } catch {
+    // deja ferme par l'utilisateur : sans consequence
+  }
+}
+
+/**
+ * Ecoute le retour du navigateur.
+ *
+ * Une fois Google validee, Supabase renvoie vers `mg.tocloud.app://auth?code=…`.
+ * Android reveille alors l'application avec cette adresse, que l'on transmet
+ * telle quelle a l'appelant.
+ */
+export async function onDeepLink(handler) {
+  if (!isNative()) return () => {};
+  try {
+    const { App } = await import("@capacitor/app");
+    const sub = await App.addListener("appUrlOpen", ({ url }) => handler(url));
+    return () => sub.remove();
+  } catch {
+    return () => {};
+  }
+}

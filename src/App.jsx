@@ -10,8 +10,8 @@ import {
 import Auth from "./Auth.jsx";
 import InstallBanner from "./InstallBanner.jsx";
 import { load, save } from "./lib/storage.js";
-import { supabase, profile, CONFIGURED, MISSING } from "./lib/api.js";
-import { onHardwareBack } from "./lib/native.js";
+import { supabase, profile, finishOAuth, CONFIGURED, MISSING } from "./lib/api.js";
+import { onHardwareBack, onDeepLink } from "./lib/native.js";
 import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
   upload, download, downloadToDisk, removeFile, objectUrl, streamUrl, forgetStream,
@@ -2289,6 +2289,16 @@ export default function ToCloud() {
   useEffect(() => {
     let off = () => {};
     onHardwareBack(() => goBack()).then(fn => { off = fn; });
+    return () => off();
+  }, []);
+
+  /* Retour du navigateur apres une connexion Google : Android reveille
+     l'application avec l'adresse contenant le code a echanger. */
+  useEffect(() => {
+    let off = () => {};
+    onDeepLink(url => {
+      finishOAuth(url).catch(e => alert(e.message));
+    }).then(fn => { off = fn; });
     return () => off();
   }, []);
 
