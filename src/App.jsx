@@ -4,7 +4,7 @@ import {
   ArrowLeft, MoreVertical, Download, Share2, Trash2, SlidersHorizontal,
   FolderOpen, Menu, Sparkles, Settings, HelpCircle, Languages, Eye, Lock,
   Info, User, UserPlus, LogOut, ChevronRight, Wifi, Bell, ShieldCheck,
-  Pencil, CircleAlert, CheckSquare, Cloud, Zap, ZoomIn, ZoomOut, Mail,
+  Pencil, CircleAlert, CheckSquare, Cloud, Zap, ZoomIn, ZoomOut, Mail, Loader2,
   RotateCcw, Folder, FolderPlus, FolderInput, ChevronLeft, Link2
 } from "lucide-react";
 import Auth from "./Auth.jsx";
@@ -16,7 +16,7 @@ import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
   upload, download, downloadToDisk, removeFile, objectUrl, logout, categorize,
   listTrash, restoreFile, purgeFile, emptyTrash,
-  addFolder, dropFolder, moveFile, shareFile, folderCounts,
+  addFolder, dropFolder, moveFile, shareFile, folderCounts, trashStats,
 } from "./lib/api.js";
 import AudioPlayer from "./AudioPlayer.jsx";
 import DocViewer from "./DocViewer.jsx";
@@ -80,6 +80,8 @@ const STR = {
     copyLink: "Copier le lien", copyLinkSub: "Lien de téléchargement, valable 7 jours",
     linkCopied: "Lien copié.", linkValid: "Valable {d} jours. Toute personne ayant ce lien peut télécharger le fichier.",
     uploadHere: "Envoyer ici",
+    deleting: "Suppression en cours…",
+    restoring: "Restauration…",
     trashEmpty: "Corbeille vide", trashEmptySub: "Les fichiers supprimés apparaîtront ici.",
     trashNote: "Ces fichiers occupent toujours votre espace. Videz la corbeille pour le libérer.",
     restore: "Restaurer", purge: "Supprimer définitivement", purgeAll: "Vider la corbeille",
@@ -145,6 +147,8 @@ const STR = {
     copyLink: "Adikao ny rohy", copyLinkSub: "Rohy fakàna, mandritra ny 7 andro",
     linkCopied: "Voadika ny rohy.", linkValid: "Mandritra ny {d} andro. Izay rehetra manana io rohy io dia afaka maka ny rakitra.",
     uploadHere: "Alefaso eto",
+    deleting: "Mamafa…",
+    restoring: "Mamerina…",
     trashEmpty: "Foana ny daba", trashEmptySub: "Ho hita eto ny rakitra voafafa.",
     trashNote: "Mbola mandany ny toeranao ireto rakitra ireto. Foano ny daba mba hanafaka azy.",
     restore: "Avereno", purge: "Fafao tanteraka", purgeAll: "Foano ny daba",
@@ -210,6 +214,8 @@ const STR = {
     copyLink: "Copy link", copyLinkSub: "Download link, valid 7 days",
     linkCopied: "Link copied.", linkValid: "Valid {d} days. Anyone with this link can download the file.",
     uploadHere: "Upload here",
+    deleting: "Deleting…",
+    restoring: "Restoring…",
     trashEmpty: "Trash is empty", trashEmptySub: "Deleted files show up here.",
     trashNote: "These files still use your space. Empty the trash to free it.",
     restore: "Restore", purge: "Delete for good", purgeAll: "Empty trash",
@@ -359,6 +365,54 @@ const GlowFrame = ({ c, children, className = "", radius = 24, pad = 2, speed = 
     <div className="relative">{children}</div>
   </div>
 );
+
+/**
+ * Chiffre qui monte jusqu'a sa valeur quand il apparait.
+ *
+ * Purement decoratif : la valeur finale est posee immediatement si l'animation
+ * est desactivee, pour ne jamais afficher un chiffre faux durablement.
+ */
+function Counter({ value, decimals = 0, duration = 900, className, style }) {
+  const [shown, setShown] = useState(0);
+  const ref = useRef(null);
+  const doneRef = useRef(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const settle = () => setShown(value);
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      settle();
+      return;
+    }
+
+    const run = () => {
+      const from = 0;
+      const start = performance.now();
+      const tick = now => {
+        const p = Math.min(1, (now - start) / duration);
+        // ralentit en fin de course : le chiffre se pose au lieu de s'arreter net
+        const eased = 1 - Math.pow(1 - p, 3);
+        setShown(from + (value - from) * eased);
+        if (p < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    };
+
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting && !doneRef.current) { doneRef.current = true; run(); }
+    }, { threshold: 0.3 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [value, duration]);
+
+  return (
+    <span ref={ref} className={className} style={style}>
+      {shown.toFixed(decimals).replace(".", ",")}
+    </span>
+  );
+}
 
 /* rises into place the first time it enters the viewport */function Reveal({ children, delay = 0, className = "" }) {
   const ref = useRef(null);
@@ -745,6 +799,18 @@ function Viewer({ file, cat, siblings = [], onNavigate, onClose, t }) {
 
 /* ─────────── drawer ─────────── */
 function Drawer({ open, onClose, go, t }) {
+  const [trash, setTrash] = useState(null);
+
+  // recharge a chaque ouverture : le contenu a pu changer entre-temps
+  useEffect(() => {
+    if (!open) return;
+    let dead = false;
+    trashStats()
+      .then(v => { if (!dead) setTrash(v); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [open]);
+
   return (
     <div aria-hidden={!open}
       style={{ background: "rgba(23,20,42,0.45)", opacity: open ? 1 : 0,
@@ -770,7 +836,9 @@ function Drawer({ open, onClose, go, t }) {
         </Panel>
 
         <nav className="flex-1">
-          <NavRow c={T.rose}   Icon={Trash2} title={t.trash} sub="20 Mo" onClick={() => go("trash")} />
+          <NavRow c={T.rose} Icon={Trash2} title={t.trash}
+                  sub={trash ? (trash.n ? `${trash.n} · ${humanSize(trash.bytes)}` : t.trashEmpty) : "…"}
+                  onClick={() => go("trash")} />
           <NavRow c={T.violet} Icon={Settings} title={t.settings} onClick={() => go("settings")} />
           <NavRow c={T.blue}   Icon={HelpCircle} title={t.help} onClick={() => go("help")} />
         </nav>
@@ -983,8 +1051,8 @@ function SettingsView({ onBack, go, lang, t }) {
 function TrashView({ onBack, t }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [work, setWork] = useState(null);   // { label, done, total }
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null);
@@ -998,11 +1066,17 @@ function TrashView({ onBack, t }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  async function act(fn) {
-    setBusy(true);
-    try { await fn(); await refresh(); }
-    catch (e) { alert(e.message); }
-    finally { setBusy(false); }
+  async function run(label, fn) {
+    setWork({ label, done: 0, total: 1 });
+    navigator.vibrate?.(12);
+    try {
+      await fn(p => setWork({ label, done: p.done, total: p.total }));
+      await refresh();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setWork(null);
+    }
   }
 
   const totalSize = files.reduce((n, f) => n + f.size, 0);
@@ -1018,7 +1092,10 @@ function TrashView({ onBack, t }) {
       {error && !loading && (
         <Panel className="mx-3 p-6 text-center">
           <CircleAlert size={32} color={T.rose} strokeWidth={1.8} className="mx-auto mb-3" />
-          <p style={{ color: T.mute }} className="text-sm">{error}</p>
+          <p style={{ color: T.mute }} className="text-sm mb-4">{error}</p>
+          <button onClick={refresh} style={{ color: T.violet }} className="text-sm font-bold">
+            {t.retry}
+          </button>
         </Panel>
       )}
 
@@ -1032,9 +1109,7 @@ function TrashView({ onBack, t }) {
 
       {files.length > 0 && (
         <>
-          <p style={{ color: T.mute }} className="text-sm px-6 pb-4 leading-snug">
-            {t.trashNote}
-          </p>
+          <p style={{ color: T.mute }} className="text-sm px-6 pb-4 leading-snug">{t.trashNote}</p>
 
           <Panel className="mx-3 overflow-hidden mb-3">
             {files.map((f, i) => {
@@ -1049,12 +1124,12 @@ function TrashView({ onBack, t }) {
                       {f.sizeLabel}
                     </div>
                   </div>
-                  <button onClick={() => act(() => restoreFile(f.id))} disabled={busy}
-                          aria-label={t.restore} className="p-2">
+                  <button onClick={() => run(t.restoring, () => restoreFile(f.id))}
+                          disabled={!!work} aria-label={t.restore} className="p-2 active:scale-90">
                     <RotateCcw size={20} color={T.blue} />
                   </button>
-                  <button onClick={() => act(() => purgeFile(f.id))} disabled={busy}
-                          aria-label={t.purge} className="p-2">
+                  <button onClick={() => run(t.deleting, () => purgeFile(f.id))}
+                          disabled={!!work} aria-label={t.purge} className="p-2 active:scale-90">
                     <Trash2 size={20} color={T.rose} />
                   </button>
                 </div>
@@ -1064,15 +1139,35 @@ function TrashView({ onBack, t }) {
 
           <div className="px-3">
             <button onClick={() => {
-                      if (confirm(t.purgeAllConfirm)) act(() => emptyTrash());
+                      if (confirm(t.purgeAllConfirm)) run(t.deleting, cb => emptyTrash(cb));
                     }}
-                    disabled={busy}
-                    style={{ border: `2px solid ${T.rose}`, color: T.rose }}
-                    className="w-full py-3.5 rounded-full text-base font-semibold active:opacity-70">
+                    disabled={!!work}
+                    style={{ border: `2px solid ${T.rose}`, color: T.rose, opacity: work ? 0.5 : 1 }}
+                    className="w-full py-3.5 rounded-full text-base font-semibold active:scale-95">
               {t.purgeAll} · {humanSize(totalSize)}
             </button>
           </div>
         </>
+      )}
+
+      {/* Le menage sur le canal prend du temps : sans retour visible,
+          l'utilisateur croit que rien ne se passe et appuie a nouveau. */}
+      {work && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-8"
+             style={{ background: "rgba(23,20,42,0.45)" }}>
+          <Panel accent={T.rose} className="w-full max-w-xs p-6 text-center">
+            <Loader2 size={30} color={T.rose} className="mx-auto mb-4 tc-spin" />
+            <p style={{ color: T.text }} className="text-base font-semibold mb-3">{work.label}</p>
+            <div style={{ background: T.sunken }} className="h-2 rounded-full overflow-hidden">
+              <div style={{ width: `${Math.round(work.done / Math.max(1, work.total) * 100)}%`,
+                            background: T.rose, transition: "width 200ms linear" }}
+                   className="h-full rounded-full" />
+            </div>
+            <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-3">
+              {work.done} / {work.total}
+            </p>
+          </Panel>
+        </div>
       )}
     </div>
   );
@@ -1372,6 +1467,7 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
   };
 
   async function wipe(ids) {
+    navigator.vibrate?.(12);
     setBusy(true);
     try {
       for (const id of ids) await removeFile(id);
@@ -1681,8 +1777,15 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, user, t }) {
             <div style={{ color: T.faint, fontFamily: DISPLAY, letterSpacing: "0.18em", fontSize: 10 }}
                  className="font-bold uppercase mb-1.5">{t.storage}</div>
             <div className="flex items-baseline gap-2">
-              <span style={{ color: T.text, fontFamily: DISPLAY }}
-                    className="text-5xl font-bold leading-none">{loading ? "—" : usedGo}</span>
+              {loading ? (
+                <span style={{ color: T.text, fontFamily: DISPLAY }}
+                      className="text-5xl font-bold leading-none">—</span>
+              ) : (
+                <Counter value={quota.used / 1024 ** 3}
+                         decimals={quota.used < 1024 ** 3 ? 2 : 1}
+                         style={{ color: T.text, fontFamily: DISPLAY }}
+                         className="text-5xl font-bold leading-none" />
+              )}
               <span style={{ color: T.mute, fontFamily: DISPLAY }}
                     className="text-3xl font-bold leading-none">/ {totalGo} Go</span>
             </div>
@@ -1825,6 +1928,7 @@ function FolderView({ folder, onBack, onOpen, onPlay, t }) {
   };
 
   async function wipe(ids) {
+    navigator.vibrate?.(12);
     setBusy(true);
     try {
       for (const id of ids) await removeFile(id);
@@ -2222,6 +2326,20 @@ export default function ToCloud() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
         @keyframes tcspin { to { transform: rotate(360deg); } }
+        @keyframes tcrot { to { transform: rotate(360deg); } }
+        .tc-spin { animation: tcrot 900ms linear infinite; }
+
+        /* Retour tactile : sans lui, un appui sur mobile ne se voit pas et
+           l'utilisateur appuie deux fois. */
+        button, a[role="button"], [role="button"] {
+          transition: transform 90ms ease, opacity 90ms ease;
+          -webkit-tap-highlight-color: transparent;
+        }
+        button:active, a[role="button"]:active, [role="button"]:active {
+          transform: scale(0.96);
+          opacity: 0.82;
+        }
+        button:disabled:active { transform: none; opacity: 1; }
         @keyframes tcbreathe { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
         @media (prefers-reduced-motion: reduce) {
           .tc-anim { animation: none !important; }

@@ -6,7 +6,7 @@ import { register as apiRegister, login as apiLogin,
 
 const COPY = {
   fr: {
-    tagline: "100 Go gratuits. Vos fichiers, partout.",
+    tagline: "500 Go gratuits. Vos fichiers, partout.",
     login: "Se connecter", signup: "Créer un compte",
     google: "Continuer avec Google",
     or: "ou", name: "Nom complet", email: "Adresse e-mail", pass: "Mot de passe",
@@ -24,7 +24,7 @@ const COPY = {
     errEmailFirst: "Indiquez d'abord votre adresse e-mail.",
   },
   mg: {
-    tagline: "100 Go maimaim-poana. Ny rakitrao, na aiza na aiza.",
+    tagline: "500 Go maimaim-poana. Ny rakitrao, na aiza na aiza.",
     login: "Hiditra", signup: "Hamorona kaonty",
     google: "Hanohy amin'ny Google",
     or: "na", name: "Anarana feno", email: "Adiresy mailaka", pass: "Teny miafina",

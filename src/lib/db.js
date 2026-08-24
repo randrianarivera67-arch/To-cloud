@@ -161,6 +161,14 @@ export const removeFile = async id => {
   if (error) throw new Error(error.message);
 };
 
+/** Taille et nombre de fichiers en corbeille, pour l'afficher dans le menu. */
+export async function trashStats() {
+  const { data, error } = await supabase
+    .from("files").select("size").not("deleted_at", "is", null);
+  if (error) throw new Error(error.message);
+  return { n: data.length, bytes: data.reduce((t, f) => t + Number(f.size), 0) };
+}
+
 export async function listTrash() {
   const { data, error } = await supabase
     .from("files").select("id, name, size, cat, deleted_at")
@@ -184,17 +192,28 @@ export const restoreFile = async id => {
  */
 export async function purgeFile(id) {
   const t = await token();
-  await fetch(`${WORKER}/api/chunks/${id}`, {
-    method: "DELETE",
-    headers: { authorization: `Bearer ${t}` },
-  }).catch(() => {});
+
+  // Le menage sur le canal peut echouer (message trop ancien, bot bloque) sans
+  // que cela doive empecher la suppression : l'utilisateur a demande a effacer.
+  try {
+    await fetch(`${WORKER}/api/chunks/${id}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${t}` },
+    });
+  } catch {
+    // sans consequence pour l'utilisateur, la ligne part quand meme
+  }
+
   const { error } = await supabase.from("files").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
 
-export async function emptyTrash() {
+export async function emptyTrash(onProgress) {
   const list = await listTrash();
-  for (const f of list) await purgeFile(f.id);
+  for (let i = 0; i < list.length; i++) {
+    await purgeFile(list[i].id);
+    onProgress?.({ done: i + 1, total: list.length });
+  }
   return list.length;
 }
 
