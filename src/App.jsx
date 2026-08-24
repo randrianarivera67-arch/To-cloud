@@ -2345,28 +2345,7 @@ export default function ToCloud() {
     <UploadProvider>
     <div style={{ background: T.bg, fontFamily: "'Inter Tight', system-ui, sans-serif" }}
          className="w-full min-h-screen flex justify-center">
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-        @keyframes tcspin { to { transform: rotate(360deg); } }
-        @keyframes tcrot { to { transform: rotate(360deg); } }
-        .tc-spin { animation: tcrot 900ms linear infinite; }
-
-        /* Retour tactile : sans lui, un appui sur mobile ne se voit pas et
-           l'utilisateur appuie deux fois. */
-        button, a[role="button"], [role="button"] {
-          transition: transform 90ms ease, opacity 90ms ease;
-          -webkit-tap-highlight-color: transparent;
-        }
-        button:active, a[role="button"]:active, [role="button"]:active {
-          transform: scale(0.96);
-          opacity: 0.82;
-        }
-        button:disabled:active { transform: none; opacity: 1; }
-        @keyframes tcbreathe { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
-        @media (prefers-reduced-motion: reduce) {
-          .tc-anim { animation: none !important; }
-        }
-      `}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`}</style>
 
       <div className="relative w-full max-w-md overflow-hidden"
            style={{ background: T.bg, minHeight: "100vh",

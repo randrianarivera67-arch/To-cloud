@@ -5,3 +5,26 @@
 html, body, #root { height: 100%; }
 body { margin: 0; background: #F5F3FB; -webkit-font-smoothing: antialiased; }
 * { -webkit-tap-highlight-color: transparent; }
+
+/* Ces animations vivent ici plutot que dans un composant : l'ecran de connexion
+   s'affiche avant le reste de l'application et doit pouvoir s'en servir. */
+@keyframes tcspin { to { transform: rotate(360deg); } }
+@keyframes tcrot { to { transform: rotate(360deg); } }
+@keyframes tcbreathe { 0%, 100% { opacity: 0.82; } 50% { opacity: 1; } }
+
+.tc-spin { animation: tcrot 900ms linear infinite; }
+
+/* Retour tactile : sans lui, un appui sur mobile ne se voit pas et
+   l'utilisateur appuie deux fois. */
+button, a[role="button"], [role="button"] {
+  transition: transform 90ms ease, opacity 90ms ease;
+}
+button:active, a[role="button"]:active, [role="button"]:active {
+  transform: scale(0.96);
+  opacity: 0.82;
+}
+button:disabled:active { transform: none; opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tc-anim { animation: none !important; }
+}

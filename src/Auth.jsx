@@ -132,6 +132,7 @@ export default function Auth({ onDone, lang = "fr" }) {
   return (
     <div className="w-full min-h-screen flex justify-center"
          style={{ background: T.bg, fontFamily: "'Inter Tight', system-ui, sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');`}</style>
       <div className="relative w-full max-w-md px-6 pt-14 pb-10 overflow-hidden"
            style={{ backgroundImage:
              `radial-gradient(520px 260px at 100% 0%, ${T.violet}1F, transparent 66%),
