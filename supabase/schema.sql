@@ -24,6 +24,11 @@ create policy "profil visible par son proprietaire"
   on profiles for select using (auth.uid() = id);
 
 drop policy if exists "profil modifiable par son proprietaire" on profiles;
+drop policy if exists "profil creable par son proprietaire" on profiles;
+create policy "profil creable par son proprietaire"
+  on profiles for insert with check (auth.uid() = id);
+
+drop policy if exists "profil modifiable par son proprietaire" on profiles;
 create policy "profil modifiable par son proprietaire"
   on profiles for update using (auth.uid() = id);
 

@@ -99,12 +99,44 @@ export async function resetPassword(email) {
 
 export const logout = () => supabase.auth.signOut();
 
+/**
+ * Profil de l'utilisateur connecte.
+ *
+ * La ligne est normalement creee par un declencheur a l'inscription. Si elle
+ * manque — declencheur pose apres coup, compte cree autrement — on la pose
+ * ici : sans profil, l'application renverrait vers l'ecran de connexion alors
+ * que la session est valide.
+ */
 export async function profile() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
+
   const { data } = await supabase
-    .from("profiles").select("name, quota, used").eq("id", user.id).single();
-  return { id: user.id, email: user.email, ...(data || { quota: 0, used: 0 }) };
+    .from("profiles").select("name, quota, used").eq("id", user.id).maybeSingle();
+
+  if (data) return { id: user.id, email: user.email, ...data };
+
+  const name =
+    user.user_metadata?.name ||
+    user.user_metadata?.full_name ||
+    user.email?.split("@")[0] ||
+    "";
+
+  const { data: created } = await supabase
+    .from("profiles")
+    .insert({ id: user.id, name })
+    .select("name, quota, used")
+    .maybeSingle();
+
+  // meme si l'insertion echoue, la session reste valide : on rend un profil
+  // minimal plutot que de faire croire a une deconnexion
+  return {
+    id: user.id,
+    email: user.email,
+    name,
+    quota: created?.quota ?? 536870912000,
+    used: created?.used ?? 0,
+  };
 }
 
 /* ─────────── lecture ─────────── */
