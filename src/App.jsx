@@ -92,6 +92,10 @@ const STR = {
     trashNote: "Ces fichiers occupent toujours votre espace. Videz la corbeille pour le libérer.",
     restore: "Restaurer", purge: "Supprimer définitivement", purgeAll: "Vider la corbeille",
     purgeAllConfirm: "Supprimer définitivement tous les fichiers de la corbeille ?",
+    commonPlans: "Paliers courants",
+    customTitle: "Un autre volume ?",
+    customNote: "Indiquez l'espace dont vous avez besoin. La facturation se fait au tera-octet entier ; le prix s'affiche avant l'envoi.",
+    customRange: "Entre 2 et 50 To.",
     buyStorage: "Acheter plus de stockage",
     storePlans: "Forfaits", perMonth: "paiement unique",
     storeTitle: "Besoin de plus de place ?",
@@ -181,6 +185,10 @@ const STR = {
     trashNote: "Mbola mandany ny toeranao ireto rakitra ireto. Foano ny daba mba hanafaka azy.",
     restore: "Avereno", purge: "Fafao tanteraka", purgeAll: "Foano ny daba",
     purgeAllConfirm: "Hofafana tanteraka ny rakitra rehetra ao amin'ny daba?",
+    commonPlans: "Safidy mahazatra",
+    customTitle: "Habe hafa?",
+    customNote: "Soraty ny toerana ilainao. Isaky ny tera-octet feno ny fandoavana; aseho ny vidiny alohan'ny fandefasana.",
+    customRange: "Eo anelanelan'ny 2 sy 50 To.",
     buyStorage: "Hividy toerana fanampiny",
     storePlans: "Safidy", perMonth: "fandoavana indray mandeha",
     storeTitle: "Mila toerana bebe kokoa?",
@@ -270,6 +278,10 @@ const STR = {
     trashNote: "These files still use your space. Empty the trash to free it.",
     restore: "Restore", purge: "Delete for good", purgeAll: "Empty trash",
     purgeAllConfirm: "Permanently delete everything in the trash?",
+    commonPlans: "Common sizes",
+    customTitle: "A different amount?",
+    customNote: "Enter the space you need. Billing is per whole terabyte; the price shows before you send.",
+    customRange: "Between 2 and 50 TB.",
     buyStorage: "Get more storage",
     storePlans: "Plans", perMonth: "one-time payment",
     storeTitle: "Need more room?",
@@ -1840,10 +1852,32 @@ const PLANS = [
 
 const ariary = n => n.toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ");
 
+/**
+ * Prix d'un volume libre.
+ *
+ * La grille suit une droite : dix mille ariary par tera-octet, plus trente
+ * mille de base. Elle prolonge donc les paliers affiches sans les contredire —
+ * 2 To donnent bien 50 000 Ar, 10 To bien 130 000 Ar.
+ */
+const priceFor = to => 30000 + 10000 * to;
+
 function StoreView({ onBack, user, t }) {
   const [picked, setPicked] = useState(null);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [custom, setCustom] = useState("");
+  const [unit, setUnit] = useState("To");
+
+  /* Volume saisi a la main, converti en tera-octets pleins : la facturation se
+     fait au tera, arrondir a l'unite superieure evite de vendre une tranche
+     entamee. */
+  const customTo = (() => {
+    const v = parseFloat(custom.replace(",", "."));
+    if (!(v > 0)) return null;
+    const to = unit === "Go" ? v / 1024 : v;
+    const rounded = Math.max(2, Math.ceil(to));
+    return rounded <= 50 ? rounded : null;
+  })();
 
   /**
    * Enregistrer la demande d'abord, ouvrir la messagerie ensuite.
@@ -1891,12 +1925,76 @@ function StoreView({ onBack, user, t }) {
         <p style={{ color: T.mute }} className="text-sm leading-snug">{t.storeIntro}</p>
       </Panel>
 
+      {/* Saisie libre : les paliers couvrent le cas courant, pas les besoins
+          precis ni ceux qui depassent la grille. */}
+      <div className="px-3 mb-5">
+        <Panel accent={T.blue} className="p-5">
+          <h3 style={{ color: T.text }} className="text-base font-semibold mb-1">
+            {t.customTitle}
+          </h3>
+          <p style={{ color: T.mute }} className="text-sm leading-snug mb-4">{t.customNote}</p>
+
+          <div className="flex items-center gap-3 mb-4">
+            <input value={custom} onChange={e => setCustom(e.target.value)}
+                   type="number" min="1" step="1" inputMode="decimal"
+                   placeholder="0"
+                   className="flex-1 min-w-0 bg-transparent outline-none text-2xl font-bold"
+                   style={{ color: T.text, fontFamily: DISPLAY,
+                            borderBottom: `1.5px solid ${T.line}` }} />
+            <div className="flex gap-1 shrink-0">
+              {["Go", "To"].map(u => (
+                <button key={u} onClick={() => setUnit(u)}
+                  style={{ background: unit === u ? T.blueBg : "transparent",
+                           border: `1.5px solid ${unit === u ? T.blue : T.line}`,
+                           color: unit === u ? T.blue : T.mute }}
+                  className="text-sm font-bold px-3 py-1.5 rounded-full">
+                  {u}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {customTo && (
+            <div style={{ background: T.sunken }} className="rounded-2xl p-4 mb-4">
+              <div style={{ color: T.text, fontFamily: DISPLAY }} className="text-2xl font-bold">
+                {ariary(priceFor(customTo))} Ar
+              </div>
+              <div style={{ color: T.mute }} className="text-sm mt-1">
+                {customTo} To · {t.perMonth}
+              </div>
+            </div>
+          )}
+
+          {custom && !customTo && (
+            <p style={{ color: T.rose }} className="text-sm mb-4">{t.customRange}</p>
+          )}
+
+          <button
+            onClick={() => customTo && send({ to: customTo, ar: priceFor(customTo) })}
+            disabled={!customTo || sending}
+            style={{ background: T.blue, opacity: customTo && !sending ? 1 : 0.5 }}
+            className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-full">
+            {sending
+              ? <Loader2 size={19} color="#FFFFFF" className="tc-spin" />
+              : <Mail size={19} color="#FFFFFF" />}
+            <span className="text-base font-semibold text-white">{t.askPlan}</span>
+          </button>
+        </Panel>
+      </div>
+
+
       {sent && (
         <Panel accent={T.blue} className="mx-3 p-4 mb-4 flex items-center gap-3">
           <Check size={20} color={T.blue} strokeWidth={2.6} className="shrink-0" />
           <p style={{ color: T.text }} className="text-sm leading-snug">{t.requestSent}</p>
         </Panel>
       )}
+
+      <div className="flex items-center gap-3 px-6 pb-2">
+        <span style={{ color: T.mute, fontFamily: DISPLAY, letterSpacing: "0.14em" }}
+              className="text-xs font-bold uppercase">{t.commonPlans}</span>
+        <span style={{ background: T.line }} className="flex-1 h-px" />
+      </div>
 
       <div className="px-3 space-y-3">
         {PLANS.map((plan, i) => {
@@ -2091,7 +2189,7 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
           </button>
         </div>
       ) : (
-        <div className="flex items-center justify-between px-4 pt-4 pb-5">
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <button onClick={onBack} aria-label="Retour" className="p-1 -ml-1">
             <ArrowLeft size={26} color={T.text} />
           </button>
@@ -2104,39 +2202,30 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
 
       {!mode && (
         <>
-          <div className="flex items-center gap-4 px-5 mb-5">
-            <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={62} icon={30} />
-            <div className="min-w-0">
+          {/* En-tete compact : au-dela de deux ou trois lignes, la grille
+              d'images passe sous le pli et il faut defiler pour la voir. */}
+          <div className="flex items-center gap-3 px-4 mb-3">
+            <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={44} icon={21} />
+            <div className="min-w-0 flex-1">
               <h1 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.02em" }}
-                  className="text-2xl font-bold uppercase">{t.cats[cat.key]}</h1>
-              <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
+                  className="text-xl font-bold uppercase leading-tight">{t.cats[cat.key]}</h1>
+              <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-0.5">
                 {meta.total} {t.files}
               </p>
-              {items.length > 0 && (
-                <p style={{ color: T.faint }} className="text-xs mt-1">{t.holdToSelect}</p>
-              )}
             </div>
+
+            {items.length > 1 && (
+              <button onClick={() => setSort(s => s === "recent" ? "name" : s === "name" ? "size" : "recent")}
+                style={{ background: T.sunken, color: T.mute }}
+                className="text-xs font-semibold px-3 py-2 rounded-full shrink-0">
+                {sort === "recent" ? t.sortRecent : sort === "name" ? t.sortName : t.sortSize}
+              </button>
+            )}
           </div>
 
-          <div className="px-3 mb-4">
+          <div className="px-3 mb-3">
             <SearchBar value={q} onChange={setQ} accent={cat.c} t={t} />
           </div>
-
-          {items.length > 1 && (
-            <div className="flex items-center gap-2 px-4 mb-4 overflow-x-auto">
-              {[["recent", t.sortRecent], ["name", t.sortName], ["size", t.sortSize]].map(([k, l]) => (
-                <button key={k} onClick={() => setSort(k)}
-                  style={{
-                    background: sort === k ? cat.bg : "transparent",
-                    border: `1.5px solid ${sort === k ? cat.c : T.line}`,
-                    color: sort === k ? cat.c : T.mute,
-                  }}
-                  className="text-xs font-semibold px-3.5 py-2 rounded-full shrink-0">
-                  {l}
-                </button>
-              ))}
-            </div>
-          )}
         </>
       )}
 
@@ -2556,7 +2645,7 @@ function FolderView({ folder, onBack, onOpen, onPlay, t }) {
           </button>
         </div>
       ) : (
-        <div className="flex items-center justify-between px-4 pt-4 pb-5">
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <button onClick={onBack} aria-label="Retour" className="p-1 -ml-1">
             <ArrowLeft size={26} color={T.text} />
           </button>
@@ -2569,17 +2658,17 @@ function FolderView({ folder, onBack, onOpen, onPlay, t }) {
 
       {!mode && (
         <>
-          <div className="flex items-center gap-4 px-5 mb-5">
-            <Tile c={T.violet} bg={T.violetBg} Icon={Folder} size={62} icon={30} />
-            <div className="min-w-0">
+          <div className="flex items-center gap-3 px-4 mb-3">
+            <Tile c={T.violet} bg={T.violetBg} Icon={Folder} size={44} icon={21} />
+            <div className="min-w-0 flex-1">
               <h1 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.02em" }}
-                  className="text-2xl font-bold uppercase truncate">{folder.name}</h1>
-              <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
+                  className="text-xl font-bold uppercase truncate leading-tight">{folder.name}</h1>
+              <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-0.5">
                 {meta.total} {t.files}
               </p>
             </div>
           </div>
-          <div className="px-3 mb-4">
+          <div className="px-3 mb-3">
             <SearchBar value={q} onChange={setQ} t={t} />
           </div>
         </>
