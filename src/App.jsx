@@ -711,9 +711,12 @@ function Viewer({ file, cat, siblings = [], onNavigate, onClose, t }) {
   const k = file.cat;
   const dark = k === "sary" || k === "video";
 
+  /* `fixed` et non `absolute` : le conteneur de l'application est aussi haut
+     que son contenu, si bien qu'un calque ancre sur lui centrait l'image au
+     milieu de toute la page — donc tres bas, hors de vue. */
   const Chrome = ({ children }) => (
-    <div className="absolute inset-0 z-50 flex flex-col"
-         style={{ background: dark ? T.stage : T.bg }}>
+    <div className="fixed inset-0 z-50 flex flex-col mx-auto"
+         style={{ background: dark ? T.stage : T.bg, maxWidth: 448 }}>
       <div className="flex items-center gap-3 px-4 py-4 shrink-0">
         <button onClick={onClose} aria-label="Fermer" className="p-1 -ml-1">
           <X size={26} color={dark ? "#FFFFFF" : T.text} />
@@ -920,7 +923,7 @@ function Drawer({ open, onClose, go, t }) {
     <div aria-hidden={!open}
       style={{ background: "rgba(23,20,42,0.45)", opacity: open ? 1 : 0,
                pointerEvents: open ? "auto" : "none", transition: "opacity 200ms ease" }}
-      className="absolute inset-0 z-50" onClick={onClose}>
+      className="fixed inset-0 z-50" onClick={onClose}>
       <aside onClick={e => e.stopPropagation()}
         style={{ background: T.bg, transform: open ? "translateX(0)" : "translateX(-100%)",
                  transition: "transform 240ms cubic-bezier(.2,.8,.2,1)" }}

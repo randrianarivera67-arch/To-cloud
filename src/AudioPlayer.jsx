@@ -142,7 +142,8 @@ export default function AudioPlayer({ queue, startId, onClose, t }) {
   const pct = dur ? (pos / dur) * 100 : 0;
 
   return (
-    <div className="absolute inset-0 z-50 flex flex-col" style={{ background: T.bg }}>
+    <div className="fixed inset-0 z-50 flex flex-col mx-auto"
+         style={{ background: T.bg, maxWidth: 448 }}>
 
       <div className="flex items-center gap-3 px-4 py-4 shrink-0">
         <button onClick={onClose} aria-label="Fermer" className="p-1 -ml-1">
@@ -261,7 +262,7 @@ export default function AudioPlayer({ queue, startId, onClose, t }) {
 
       {/* file d'attente */}
       {showList && (
-        <div className="absolute inset-0 z-10 flex items-end"
+        <div className="fixed inset-0 z-10 flex items-end justify-center"
              style={{ background: "rgba(23,20,42,0.45)" }} onClick={() => setShowList(false)}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.bg }}
                className="w-full rounded-t-3xl pt-3 pb-8 max-h-[70%] overflow-y-auto">

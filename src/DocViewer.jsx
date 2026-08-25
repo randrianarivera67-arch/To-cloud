@@ -28,7 +28,8 @@ export default function DocViewer({ file, blob, t, onClose }) {
 
 function Frame({ file, t, onClose, children, footer }) {
   return (
-    <div className="absolute inset-0 z-50 flex flex-col" style={{ background: T.bg }}>
+    <div className="fixed inset-0 z-50 flex flex-col mx-auto"
+         style={{ background: T.bg, maxWidth: 448 }}>
       <div className="flex items-center gap-3 px-4 py-4 shrink-0">
         <button onClick={onClose} aria-label="Fermer" className="p-1 -ml-1">
           <X size={26} color={T.text} />
