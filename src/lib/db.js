@@ -16,8 +16,63 @@ const KEY_ = import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const CONFIGURED = Boolean(URL_ && KEY_ && WORKER_URL);
 
 export const supabase = CONFIGURED
-  ? createClient(URL_, KEY_, { auth: { persistSession: true, autoRefreshToken: true } })
+  ? createClient(URL_, KEY_, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        // Le retour de Google arrive dans l'adresse : sans cette lecture, la
+        // session n'est jamais etablie et l'ecran de connexion reapparait.
+        detectSessionInUrl: true,
+        flowType: "pkce",
+      },
+    })
   : null;
+
+/**
+ * Termine une connexion externe restee en suspens.
+ *
+ * `detectSessionInUrl` s'en charge normalement, mais il ne s'execute qu'une
+ * fois, au chargement du module. Si la page a ete servie depuis le cache ou
+ * rechargee autrement, le code reste dans l'adresse sans etre echange. On
+ * verifie donc explicitement.
+ */
+export async function resumeOAuth() {
+  if (!CONFIGURED || typeof window === "undefined") return false;
+
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("code");
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+  const access = hash.get("access_token");
+  const refresh = hash.get("refresh_token");
+
+  const clean = () => {
+    url.search = "";
+    url.hash = "";
+    window.history.replaceState({}, "", url.toString());
+  };
+
+  try {
+    if (code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      clean();
+      if (error) throw new Error(error.message);
+      return true;
+    }
+    if (access && refresh) {
+      const { error } = await supabase.auth.setSession({
+        access_token: access,
+        refresh_token: refresh,
+      });
+      clean();
+      if (error) throw new Error(error.message);
+      return true;
+    }
+  } catch (e) {
+    clean();
+    console.warn("Connexion externe non aboutie :", e.message);
+  }
+  return false;
+}
 
 export const WORKER = WORKER_URL;
 

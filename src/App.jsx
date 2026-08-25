@@ -10,7 +10,7 @@ import {
 import Auth from "./Auth.jsx";
 import InstallBanner from "./InstallBanner.jsx";
 import { load, save } from "./lib/storage.js";
-import { supabase, profile, finishOAuth, CONFIGURED, MISSING } from "./lib/api.js";
+import { supabase, profile, finishOAuth, resumeOAuth, CONFIGURED, MISSING } from "./lib/api.js";
 import { onHardwareBack, onDeepLink } from "./lib/native.js";
 import { useFiles, humanSize } from "./lib/useFiles.js";
 import {
@@ -2232,7 +2232,8 @@ export default function ToCloud() {
       const p = await profile().catch(() => null);
       if (alive) { setUser(p); setReady(true); }
     };
-    sync();
+    // termine d'abord un eventuel retour de connexion externe
+    resumeOAuth().finally(sync);
     const { data } = supabase.auth.onAuthStateChange(() => sync());
     return () => { alive = false; data.subscription.unsubscribe(); };
   }, []);
