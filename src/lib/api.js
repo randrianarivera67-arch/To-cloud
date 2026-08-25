@@ -6,6 +6,8 @@
  */
 export {
   supabase, CONFIGURED, MISSING, WORKER, token, register, login, loginWithGoogle, finishOAuth, resumeOAuth, resetPassword, logout, profile,
+  isAdmin, adminUsers, adminSetQuota, adminSetFreeQuota,
+  listRequests, createRequest, resolveRequest,
   listFiles, counts, listFolders, folderCounts, addFolder, dropFolder, moveFile,
   removeFile, listTrash, trashStats, restoreFile, purgeFile, emptyTrash,
   upload, uploadedParts, download, downloadToDisk, objectUrl, streamUrl, forgetStream,

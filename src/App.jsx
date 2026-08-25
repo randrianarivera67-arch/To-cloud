@@ -18,6 +18,8 @@ import {
   logout, categorize,
   listTrash, restoreFile, purgeFile, emptyTrash,
   addFolder, dropFolder, moveFile, shareFile, folderCounts, trashStats,
+  isAdmin, adminUsers, adminSetQuota, adminSetFreeQuota,
+  listRequests, createRequest, resolveRequest,
 } from "./lib/api.js";
 import AudioPlayer from "./AudioPlayer.jsx";
 import DocViewer from "./DocViewer.jsx";
@@ -96,6 +98,19 @@ const STR = {
     storeIntro: "Choisissez un forfait, puis écrivez-nous : nous vous indiquons comment payer et le compte est étendu sous 48 h.",
     askPlan: "Demander ce forfait",
     storeNote: "Le paiement se fait par Mobile Money. Aucun prélèvement automatique : le forfait s'arrête si vous ne renouvelez pas, et vos fichiers restent consultables même au-delà du quota — seul l'envoi est bloqué.",
+    admin: "Administration", adminSub: "Comptes et demandes",
+    adminAccounts: "comptes", adminPending: "en attente", adminStored: "stockés",
+    adminRequests: "Demandes", adminUsers: "Comptes",
+    adminNoRequest: "Aucune demande",
+    adminApprove: "Accepter", adminReject: "Refuser",
+    adminSetQuota: "Modifier le quota", adminApply: "Appliquer",
+    adminBulk: "Changer l'offre gratuite",
+    adminBulkNote: "{n} compte(s) au palier gratuit.",
+    adminBulkExplain: "Le nouveau quota s'applique aux {n} compte(s) restés au palier gratuit.",
+    adminBulkDone: "{n} compte(s) mis à jour.",
+    adminBulkWarn: "Les comptes déjà étendus ne sont pas touchés : baisser l'offre gratuite ne doit pas reprendre de la place à quelqu'un qui a payé.",
+    adminDenied: "Cet écran n'affiche que vos propres lignes si votre compte n'a pas le rôle administrateur.",
+    status_pending: "en attente", status_approved: "acceptée", status_rejected: "refusée",
     folders: "Dossiers", openFolders: "Parcourir les dossiers",
     foldersNote: "Un dossier accepte tous les types de fichiers ; ils restent visibles dans leur catégorie.",
     newFolder: "Nouveau dossier", folderName: "Nom du dossier",
@@ -171,6 +186,19 @@ const STR = {
     storeIntro: "Fidio ny safidy, dia andefaso mailaka izahay: holazainay ny fomba fandoavana, ary hitatra ao anatin'ny 48 ora ny kaonty.",
     askPlan: "Hangataka ity safidy ity",
     storeNote: "Amin'ny Mobile Money ny fandoavana. Tsy misy fisintomana automatique: mijanona ny safidy raha tsy havaozina, ary mbola azo jerena ny rakitrao na mihoatra aza ny toerana — ny fandefasana ihany no voasakana.",
+    admin: "Fitantanana", adminSub: "Kaonty sy fangatahana",
+    adminAccounts: "kaonty", adminPending: "miandry", adminStored: "voatahiry",
+    adminRequests: "Fangatahana", adminUsers: "Kaonty",
+    adminNoRequest: "Tsy misy fangatahana",
+    adminApprove: "Ekena", adminReject: "Lavina",
+    adminSetQuota: "Hanova ny toerana", adminApply: "Ampiharina",
+    adminBulk: "Hanova ny tolotra maimaim-poana",
+    adminBulkNote: "Kaonty {n} no eo amin'ny maimaim-poana.",
+    adminBulkExplain: "Hihatra amin'ny kaonty {n} mbola eo amin'ny maimaim-poana ny toerana vaovao.",
+    adminBulkDone: "Kaonty {n} no novaina.",
+    adminBulkWarn: "Tsy voakasika ny kaonty efa nitarina: ny fampihenana ny tolotra maimaim-poana dia tsy tokony haka toerana amin'izay efa nandoa.",
+    adminDenied: "Ny andalanao ihany no aseho eto raha tsy manana anjara mpitantana ny kaontinao.",
+    status_pending: "miandry", status_approved: "ekena", status_rejected: "lavina",
     folders: "Lahatahiry", openFolders: "Hijery ny lahatahiry",
     foldersNote: "Mandray karazan-drakitra rehetra ny lahatahiry; mbola hita ao amin'ny sokajiny ihany izy ireo.",
     newFolder: "Lahatahiry vaovao", folderName: "Anaran'ny lahatahiry",
@@ -246,6 +274,19 @@ const STR = {
     storeIntro: "Pick a plan, then email us: we'll explain how to pay and your account is extended within 48 h.",
     askPlan: "Request this plan",
     storeNote: "Payment is by Mobile Money. No automatic charge: the plan simply stops if you don't renew, and your files stay readable past the quota — only uploads are blocked.",
+    admin: "Administration", adminSub: "Accounts and requests",
+    adminAccounts: "accounts", adminPending: "pending", adminStored: "stored",
+    adminRequests: "Requests", adminUsers: "Accounts",
+    adminNoRequest: "No requests",
+    adminApprove: "Approve", adminReject: "Reject",
+    adminSetQuota: "Change quota", adminApply: "Apply",
+    adminBulk: "Change the free tier",
+    adminBulkNote: "{n} account(s) on the free tier.",
+    adminBulkExplain: "The new quota applies to the {n} account(s) still on the free tier.",
+    adminBulkDone: "{n} account(s) updated.",
+    adminBulkWarn: "Accounts already extended are left alone: lowering the free tier must not take space back from someone who paid.",
+    adminDenied: "This screen only shows your own rows unless your account holds the admin role.",
+    status_pending: "pending", status_approved: "approved", status_rejected: "rejected",
     folders: "Folders", openFolders: "Browse folders",
     foldersNote: "A folder takes any file type; files still appear in their category.",
     newFolder: "New folder", folderName: "Folder name",
@@ -841,6 +882,14 @@ function Viewer({ file, cat, siblings = [], onNavigate, onClose, t }) {
 /* ─────────── drawer ─────────── */
 function Drawer({ open, onClose, go, t }) {
   const [trash, setTrash] = useState(null);
+  const [admin, setAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let dead = false;
+    isAdmin().then(v => { if (!dead) setAdmin(v); }).catch(() => {});
+    return () => { dead = true; };
+  }, [open]);
 
   // recharge a chaque ouverture : le contenu a pu changer entre-temps
   useEffect(() => {
@@ -882,6 +931,10 @@ function Drawer({ open, onClose, go, t }) {
                   onClick={() => go("trash")} />
           <NavRow c={T.violet} Icon={Settings} title={t.settings} onClick={() => go("settings")} />
           <NavRow c={T.blue}   Icon={HelpCircle} title={t.help} onClick={() => go("help")} />
+          {admin && (
+            <NavRow c={T.gold} Icon={ShieldCheck} title={t.admin} sub={t.adminSub}
+                    onClick={() => go("admin")} />
+          )}
         </nav>
 
         <div className="px-6 pb-8 space-y-3">
@@ -1420,6 +1473,297 @@ const AddAccountView = ({ onBack, user, t }) => (
   </div>
 );
 
+/* ─────────── administration ─────────── */
+
+const TO = 1024 ** 4;
+const toLabel = bytes => `${(bytes / TO).toFixed(bytes % TO ? 2 : 0).replace(".", ",")} To`;
+
+/**
+ * Console d'administration.
+ *
+ * Rien ici n'accorde de droits : les regles de la base decident. Un compte
+ * ordinaire qui atteindrait cet ecran ne verrait que ses propres lignes et
+ * verrait ses modifications refusees.
+ */
+function AdminView({ onBack, t }) {
+  const [tab, setTab] = useState("requests");
+  const [users, setUsers] = useState([]);
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [edit, setEdit] = useState(null);       // compte en cours de modification
+  const [amount, setAmount] = useState("1");
+  const [bulk, setBulk] = useState(false);
+  const [bulkTo, setBulkTo] = useState("1");
+
+  const refresh = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const [u, r] = await Promise.all([adminUsers(), listRequests()]);
+      setUsers(u);
+      setRequests(r);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function run(fn) {
+    setBusy(true);
+    try { await fn(); await refresh(); }
+    catch (e) { alert(e.message); }
+    finally { setBusy(false); }
+  }
+
+  const pending = requests.filter(r => r.status === "pending");
+  const freeUsers = users.filter(u => u.quota === TO).length;
+  const totalUsed = users.reduce((n, u) => n + Number(u.used), 0);
+
+  return (
+    <div className="pb-10">
+      <TopBar title={t.admin} onBack={onBack} />
+
+      {/* vue d'ensemble */}
+      <div className="grid grid-cols-3 gap-2 px-3 mb-5">
+        {[
+          { v: users.length, l: t.adminAccounts, c: T.violet },
+          { v: pending.length, l: t.adminPending, c: pending.length ? T.rose : T.mute },
+          { v: humanSize(totalUsed), l: t.adminStored, c: T.blue },
+        ].map((k, i) => (
+          <Panel key={i} className="p-3 text-center">
+            <div style={{ color: k.c, fontFamily: DISPLAY }} className="text-xl font-bold">
+              {k.v}
+            </div>
+            <div style={{ color: T.mute, fontSize: 11 }} className="mt-1 leading-tight">{k.l}</div>
+          </Panel>
+        ))}
+      </div>
+
+      <div className="flex gap-2 px-3 mb-4">
+        {[["requests", t.adminRequests], ["users", t.adminUsers]].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)}
+            style={{ background: tab === k ? T.violetBg : "transparent",
+                     border: `1.5px solid ${tab === k ? T.violet : T.line}`,
+                     color: tab === k ? T.violet : T.mute }}
+            className="flex-1 py-2.5 rounded-full text-sm font-semibold">
+            {l}{k === "requests" && pending.length ? ` · ${pending.length}` : ""}
+          </button>
+        ))}
+      </div>
+
+      {loading && (
+        <p style={{ color: T.mute }} className="text-sm px-6 py-10 text-center">{t.loading}</p>
+      )}
+
+      {error && !loading && (
+        <Panel className="mx-3 p-6 text-center">
+          <CircleAlert size={32} color={T.rose} strokeWidth={1.8} className="mx-auto mb-3" />
+          <p style={{ color: T.mute }} className="text-sm mb-3">{error}</p>
+          <p style={{ color: T.faint }} className="text-xs leading-snug">{t.adminDenied}</p>
+        </Panel>
+      )}
+
+      {/* demandes */}
+      {!loading && !error && tab === "requests" && (
+        requests.length === 0 ? (
+          <Panel className="mx-3 p-8 text-center">
+            <Mail size={36} color={T.faint} strokeWidth={1.6} className="mx-auto mb-4" />
+            <p style={{ color: T.text }} className="text-base font-semibold">{t.adminNoRequest}</p>
+          </Panel>
+        ) : (
+          <Panel className="mx-3 overflow-hidden">
+            {requests.map((r, i) => (
+              <div key={r.id} style={{ borderTop: i ? `1px solid ${T.line}` : "none" }}
+                   className="px-4 py-3.5">
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div style={{ color: T.text }} className="text-base truncate">{r.email}</div>
+                    <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
+                      {r.plan_to} To · {r.price_ar.toLocaleString("fr-FR")} Ar ·{" "}
+                      {new Date(r.created_at).toLocaleDateString("fr-FR")}
+                    </div>
+                  </div>
+                  <span style={{
+                          color: r.status === "pending" ? T.gold
+                               : r.status === "approved" ? T.blue : T.rose,
+                          background: r.status === "pending" ? T.goldBg
+                               : r.status === "approved" ? T.blueBg : T.roseBg }}
+                        className="text-xs font-semibold px-2.5 py-1 rounded-full shrink-0">
+                    {t[`status_${r.status}`]}
+                  </span>
+                </div>
+
+                {r.status === "pending" && (
+                  <div className="flex gap-2 mt-3">
+                    <button onClick={() => run(() => resolveRequest(r, true))} disabled={busy}
+                            style={{ background: T.violet }}
+                            className="flex-1 py-2.5 rounded-full text-sm font-semibold text-white">
+                      {t.adminApprove}
+                    </button>
+                    <button onClick={() => run(() => resolveRequest(r, false))} disabled={busy}
+                            style={{ border: `1.5px solid ${T.line}`, color: T.mute }}
+                            className="flex-1 py-2.5 rounded-full text-sm font-semibold">
+                      {t.adminReject}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </Panel>
+        )
+      )}
+
+      {/* comptes */}
+      {!loading && !error && tab === "users" && (
+        <>
+          <div className="px-3 mb-4">
+            <button onClick={() => setBulk(true)}
+                    style={{ border: `2px dashed ${T.blue}`, color: T.blue }}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 rounded-3xl">
+              <Sparkles size={18} color={T.blue} />
+              <span className="text-sm font-semibold">{t.adminBulk}</span>
+            </button>
+            <p style={{ color: T.faint }} className="text-xs mt-2 px-2 leading-snug">
+              {t.adminBulkNote.replace("{n}", freeUsers)}
+            </p>
+          </div>
+
+          <Panel className="mx-3 overflow-hidden">
+            {users.map((u, i) => (
+              <div key={u.id} style={{ borderTop: i ? `1px solid ${T.line}` : "none" }}
+                   className="flex items-center gap-3 px-4 py-3.5">
+                <div style={{ background: u.role === "admin" ? T.violetBg : T.sunken }}
+                     className="w-11 h-11 rounded-full flex items-center justify-center shrink-0">
+                  <span style={{ color: u.role === "admin" ? T.violet : T.mute,
+                                 fontFamily: DISPLAY }} className="text-base font-bold">
+                    {(u.name || u.email || "?").charAt(0).toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div style={{ color: T.text }} className="text-sm truncate">
+                    {u.email}
+                    {u.role === "admin" && (
+                      <span style={{ color: T.violet }} className="text-xs font-bold ml-2">admin</span>
+                    )}
+                  </div>
+                  <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
+                    {humanSize(Number(u.used))} / {toLabel(Number(u.quota))}
+                  </div>
+                </div>
+
+                <button onClick={() => { setEdit(u); setAmount(String(Number(u.quota) / TO)); }}
+                        aria-label={t.adminSetQuota} className="p-2">
+                  <Pencil size={18} color={T.mute} />
+                </button>
+              </div>
+            ))}
+          </Panel>
+        </>
+      )}
+
+      {/* quota d'un compte */}
+      <Sheet open={!!edit} onClose={() => setEdit(null)}>
+        {edit && (
+          <>
+            <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
+                className="text-lg font-bold uppercase px-6 pb-1">{t.adminSetQuota}</h2>
+            <p style={{ color: T.mute }} className="text-sm px-6 pb-4 truncate">{edit.email}</p>
+
+            <Panel className="mx-3 p-5">
+              <div className="flex items-center gap-3 mb-5">
+                <input value={amount} onChange={e => setAmount(e.target.value)}
+                       type="number" min="0.1" step="0.1" inputMode="decimal"
+                       className="flex-1 min-w-0 bg-transparent outline-none text-2xl font-bold"
+                       style={{ color: T.text, fontFamily: DISPLAY,
+                                borderBottom: `1.5px solid ${T.line}` }} />
+                <span style={{ color: T.mute, fontFamily: DISPLAY }} className="text-xl font-bold">To</span>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mb-5">
+                {[1, 2, 3, 5, 10].map(v => (
+                  <button key={v} onClick={() => setAmount(String(v))}
+                    style={{ border: `1.5px solid ${T.line}`, color: T.mute }}
+                    className="text-xs font-semibold px-3 py-2 rounded-full">
+                    {v} To
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-3">
+                <button onClick={() => setEdit(null)}
+                        style={{ border: `1.5px solid ${T.line}`, color: T.mute }}
+                        className="flex-1 py-3 rounded-full text-base font-semibold">
+                  {t.cancel}
+                </button>
+                <button
+                  onClick={() => {
+                    const v = parseFloat(amount);
+                    if (!(v > 0)) return;
+                    const target = edit;
+                    setEdit(null);
+                    run(() => adminSetQuota(target.id, Math.round(v * TO)));
+                  }}
+                  disabled={busy} style={{ background: T.violet }}
+                  className="flex-1 py-3 rounded-full text-base font-semibold text-white">
+                  {t.adminApply}
+                </button>
+              </div>
+            </Panel>
+          </>
+        )}
+      </Sheet>
+
+      {/* palier gratuit */}
+      <Sheet open={bulk} onClose={() => setBulk(false)}>
+        <h2 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.03em" }}
+            className="text-lg font-bold uppercase px-6 pb-1">{t.adminBulk}</h2>
+        <p style={{ color: T.mute }} className="text-sm px-6 pb-4 leading-snug">
+          {t.adminBulkExplain.replace("{n}", freeUsers)}
+        </p>
+
+        <Panel className="mx-3 p-5">
+          <div className="flex items-center gap-3 mb-5">
+            <input value={bulkTo} onChange={e => setBulkTo(e.target.value)}
+                   type="number" min="0.1" step="0.1" inputMode="decimal"
+                   className="flex-1 min-w-0 bg-transparent outline-none text-2xl font-bold"
+                   style={{ color: T.text, fontFamily: DISPLAY,
+                            borderBottom: `1.5px solid ${T.line}` }} />
+            <span style={{ color: T.mute, fontFamily: DISPLAY }} className="text-xl font-bold">To</span>
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => setBulk(false)}
+                    style={{ border: `1.5px solid ${T.line}`, color: T.mute }}
+                    className="flex-1 py-3 rounded-full text-base font-semibold">
+              {t.cancel}
+            </button>
+            <button
+              onClick={() => {
+                const v = parseFloat(bulkTo);
+                if (!(v > 0)) return;
+                setBulk(false);
+                run(async () => {
+                  const n = await adminSetFreeQuota(TO, Math.round(v * TO));
+                  alert(t.adminBulkDone.replace("{n}", n));
+                });
+              }}
+              disabled={busy} style={{ background: T.blue }}
+              className="flex-1 py-3 rounded-full text-base font-semibold text-white">
+              {t.adminApply}
+            </button>
+          </div>
+        </Panel>
+
+        <p style={{ color: T.faint }} className="text-xs px-6 pt-4 leading-relaxed">
+          {t.adminBulkWarn}
+        </p>
+      </Sheet>
+    </div>
+  );
+}
+
 /* ─────────── plans de stockage ─────────── */
 
 /**
@@ -1502,6 +1846,7 @@ function StoreView({ onBack, user, t }) {
 
               {on && (
                 <a href={mailto(plan)}
+                   onClick={() => createRequest(plan.to, plan.ar).catch(() => {})}
                    style={{ background: T.violet, boxShadow: halo(T.violet) }}
                    className="flex items-center justify-center gap-2.5 mt-2 mx-1 py-3.5 rounded-full">
                   <Mail size={19} color="#FFFFFF" />
@@ -2520,6 +2865,7 @@ export default function ToCloud() {
                         onPlay={(queue, id) => setAudio({ queue, id })}
                         t={t} lang={lang} />}
         {view === "store"      && <StoreView onBack={home} user={user} t={t} />}
+        {view === "admin"      && <AdminView key={`admin${bump}`} onBack={home} t={t} />}
         {view === "folders"    && <FoldersView key={`folders${bump}`} onBack={home}
                                                onOpenFolder={f => { setFolder(f); setView("folder"); }}
                                                onOpenCat={c => { setCat(c); setFolder(null); setView("cat"); }}

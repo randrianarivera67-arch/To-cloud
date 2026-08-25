@@ -194,6 +194,77 @@ export async function profile() {
   };
 }
 
+/* ─────────── administration ─────────── */
+
+/** Le role vient de la base : le client ne fait que le lire. */
+export async function isAdmin() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+  const { data } = await supabase
+    .from("profiles").select("role").eq("id", user.id).maybeSingle();
+  return data?.role === "admin";
+}
+
+export async function adminUsers() {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, name, email, role, quota, used, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** Change le quota d'un compte. Les regles refusent l'appel a un non-admin. */
+export async function adminSetQuota(id, bytes) {
+  const { error } = await supabase.from("profiles").update({ quota: bytes }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Ajuste le quota de tous les comptes restes au palier gratuit.
+ *
+ * Les comptes deja etendus ne sont pas touches : baisser l'offre gratuite ne
+ * doit pas reprendre de la place a quelqu'un qui a paye.
+ */
+export async function adminSetFreeQuota(fromBytes, toBytes) {
+  const { data, error } = await supabase
+    .from("profiles").update({ quota: toBytes }).eq("quota", fromBytes).select("id");
+  if (error) throw new Error(error.message);
+  return data.length;
+}
+
+export async function listRequests(status) {
+  let q = supabase
+    .from("storage_requests")
+    .select("id, user_id, email, plan_to, price_ar, status, created_at")
+    .order("created_at", { ascending: false });
+  if (status) q = q.eq("status", status);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function createRequest(planTo, priceAr) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Session expiree");
+  const { error } = await supabase.from("storage_requests").insert({
+    user_id: user.id, email: user.email, plan_to: planTo, price_ar: priceAr,
+  });
+  if (error) throw new Error(error.message);
+}
+
+/** Accepter une demande etend le compte dans la foulee : deux gestes en un. */
+export async function resolveRequest(req, approve) {
+  if (approve) {
+    await adminSetQuota(req.user_id, req.plan_to * 1024 ** 4);
+  }
+  const { error } = await supabase
+    .from("storage_requests")
+    .update({ status: approve ? "approved" : "rejected", handled_at: new Date().toISOString() })
+    .eq("id", req.id);
+  if (error) throw new Error(error.message);
+}
+
 /* ─────────── lecture ─────────── */
 
 export async function listFiles({ cat, folder, search, cursor = 0, limit = 20 } = {}) {
