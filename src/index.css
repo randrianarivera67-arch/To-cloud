@@ -6,6 +6,10 @@ html, body, #root { height: 100%; }
 body { margin: 0; background: #F5F3FB; -webkit-font-smoothing: antialiased; }
 * { -webkit-tap-highlight-color: transparent; }
 
+/* Le geste « tirer pour actualiser » est gere par l'application : sans cette
+   ligne, Chrome declencherait en plus son propre rechargement de page. */
+body { overscroll-behavior-y: contain; }
+
 /* Ces animations vivent ici plutot que dans un composant : l'ecran de connexion
    s'affiche avant le reste de l'application et doit pouvoir s'en servir. */
 @keyframes tcspin { to { transform: rotate(360deg); } }

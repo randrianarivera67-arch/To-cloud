@@ -21,6 +21,7 @@ import {
 } from "./lib/api.js";
 import AudioPlayer from "./AudioPlayer.jsx";
 import DocViewer from "./DocViewer.jsx";
+import PullToRefresh from "./PullToRefresh.jsx";
 import { UploadProvider, UploadStatus, useUploads } from "./UploadQueue.jsx";
 
 /* ─────────── tokens ─────────── */
@@ -2519,7 +2520,7 @@ export default function ToCloud() {
                         onPlay={(queue, id) => setAudio({ queue, id })}
                         t={t} lang={lang} />}
         {view === "store"      && <StoreView onBack={home} user={user} t={t} />}
-        {view === "folders"    && <FoldersView onBack={home}
+        {view === "folders"    && <FoldersView key={`folders${bump}`} onBack={home}
                                                onOpenFolder={f => { setFolder(f); setView("folder"); }}
                                                onOpenCat={c => { setCat(c); setFolder(null); setView("cat"); }}
                                                t={t} />}
@@ -2528,12 +2529,12 @@ export default function ToCloud() {
                       onBack={() => { setFolder(null); setView("folders"); }}
                       onOpen={(f, sibs) => { setGallery(sibs || []); setViewing(f); }}
                       onPlay={(queue, id) => setAudio({ queue, id })} t={t} />}
-        {view === "search"     && <SearchView onBack={home} onOpen={f => { setGallery([]); setViewing(f); }}
+        {view === "search"     && <SearchView key={`search${bump}`} onBack={home} onOpen={f => { setGallery([]); setViewing(f); }}
                                               onPlay={(queue, id) => setAudio({ queue, id })} t={t} />}
         {view === "settings"   && <SettingsView onBack={home} go={go} lang={lang} t={t} />}
         {view === "language"   && <LanguageView onBack={() => setView("settings")}
                                                 lang={lang} setLang={pickLang} t={t} />}
-        {view === "trash"      && <TrashView onBack={home} t={t} />}
+        {view === "trash"      && <TrashView key={`trash${bump}`} onBack={home} t={t} />}
         {view === "help"       && <HelpView onBack={home} t={t} />}
         {view === "addAccount" && <AddAccountView onBack={home} user={user} t={t} />}
         </div>
@@ -2541,6 +2542,16 @@ export default function ToCloud() {
         <Drawer open={drawer} onClose={() => setDrawer(false)} go={go} t={t} />
         <AccountSheet open={account} onClose={() => setAccount(false)} go={go}
                       user={user} onSignOut={signOut} t={t} />
+        <PullToRefresh
+          color={T.violet} card={T.card}
+          /* inutile — et genant — quand une feuille ou un lecteur occupe l'ecran */
+          disabled={!!viewing || !!audio || drawer || account}
+          onRefresh={async () => {
+            setBump(b => b + 1);
+            // laisse le temps aux ecrans de se remonter et de recharger
+            await new Promise(r => setTimeout(r, 700));
+          }} />
+
         <UploadStatus t={t} bottom={96} />
         <InstallBanner lang={lang} />
         {viewing && (
