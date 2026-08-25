@@ -98,6 +98,7 @@ const STR = {
     storeIntro: "Choisissez un forfait, puis écrivez-nous : nous vous indiquons comment payer et le compte est étendu sous 48 h.",
     askPlan: "Demander ce forfait",
     storeNote: "Le paiement se fait par Mobile Money. Aucun prélèvement automatique : le forfait s'arrête si vous ne renouvelez pas, et vos fichiers restent consultables même au-delà du quota — seul l'envoi est bloqué.",
+    requestSent: "Demande enregistrée. Elle apparaît côté administration ; l'e-mail qui s'ouvre sert à convenir du paiement.",
     admin: "Administration", adminSub: "Comptes et demandes",
     adminAccounts: "comptes", adminPending: "en attente", adminStored: "stockés",
     adminRequests: "Demandes", adminUsers: "Comptes",
@@ -186,6 +187,7 @@ const STR = {
     storeIntro: "Fidio ny safidy, dia andefaso mailaka izahay: holazainay ny fomba fandoavana, ary hitatra ao anatin'ny 48 ora ny kaonty.",
     askPlan: "Hangataka ity safidy ity",
     storeNote: "Amin'ny Mobile Money ny fandoavana. Tsy misy fisintomana automatique: mijanona ny safidy raha tsy havaozina, ary mbola azo jerena ny rakitrao na mihoatra aza ny toerana — ny fandefasana ihany no voasakana.",
+    requestSent: "Voarakitra ny fangatahana. Hita ao amin'ny fitantanana izy; ny mailaka misokatra dia hifanarahana ny fandoavana.",
     admin: "Fitantanana", adminSub: "Kaonty sy fangatahana",
     adminAccounts: "kaonty", adminPending: "miandry", adminStored: "voatahiry",
     adminRequests: "Fangatahana", adminUsers: "Kaonty",
@@ -274,6 +276,7 @@ const STR = {
     storeIntro: "Pick a plan, then email us: we'll explain how to pay and your account is extended within 48 h.",
     askPlan: "Request this plan",
     storeNote: "Payment is by Mobile Money. No automatic charge: the plan simply stops if you don't renew, and your files stay readable past the quota — only uploads are blocked.",
+    requestSent: "Request saved. It shows up on the admin side; the email that opens is for arranging payment.",
     admin: "Administration", adminSub: "Accounts and requests",
     adminAccounts: "accounts", adminPending: "pending", adminStored: "stored",
     adminRequests: "Requests", adminUsers: "Accounts",
@@ -1494,8 +1497,29 @@ function AdminView({ onBack, t }) {
   const [error, setError] = useState(null);
   const [edit, setEdit] = useState(null);       // compte en cours de modification
   const [amount, setAmount] = useState("1");
+  const [unit, setUnit] = useState("To");
   const [bulk, setBulk] = useState(false);
   const [bulkTo, setBulkTo] = useState("1");
+  const [bulkUnit, setBulkUnit] = useState("To");
+
+  /* Un quota se pense parfois en giga-octets — 200 Go, 500 Go — et parfois en
+     tera-octets. Imposer une seule unite obligeait a convertir de tete. */
+  const GO = 1024 ** 3;
+  const toBytes = (value, u) => Math.round(parseFloat(value) * (u === "Go" ? GO : TO));
+
+  const UnitPicker = ({ value, onChange }) => (
+    <div className="flex gap-1 shrink-0">
+      {["Go", "To"].map(u => (
+        <button key={u} onClick={() => onChange(u)}
+          style={{ background: value === u ? T.violetBg : "transparent",
+                   border: `1.5px solid ${value === u ? T.violet : T.line}`,
+                   color: value === u ? T.violet : T.mute }}
+          className="text-sm font-bold px-3 py-1.5 rounded-full">
+          {u}
+        </button>
+      ))}
+    </div>
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null);
@@ -1517,8 +1541,18 @@ function AdminView({ onBack, t }) {
   }
 
   const pending = requests.filter(r => r.status === "pending");
-  const freeUsers = users.filter(u => u.quota === TO).length;
   const totalUsed = users.reduce((n, u) => n + Number(u.used), 0);
+
+  /* Le palier gratuit n'est pas ecrit en dur : c'est le quota le plus repandu.
+     Il suit donc les changements successifs sans qu'on ait a le renseigner. */
+  const freeQuota = useMemo(() => {
+    const tally = {};
+    users.forEach(u => { tally[u.quota] = (tally[u.quota] || 0) + 1; });
+    const top = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+    return top ? Number(top[0]) : TO;
+  }, [users]);
+
+  const freeUsers = users.filter(u => Number(u.quota) === freeQuota).length;
 
   return (
     <div className="pb-10">
@@ -1625,7 +1659,7 @@ function AdminView({ onBack, t }) {
               <span className="text-sm font-semibold">{t.adminBulk}</span>
             </button>
             <p style={{ color: T.faint }} className="text-xs mt-2 px-2 leading-snug">
-              {t.adminBulkNote.replace("{n}", freeUsers)}
+              {t.adminBulkNote.replace("{n}", freeUsers)} · {toLabel(freeQuota)}
             </p>
           </div>
 
@@ -1672,21 +1706,26 @@ function AdminView({ onBack, t }) {
             <p style={{ color: T.mute }} className="text-sm px-6 pb-4 truncate">{edit.email}</p>
 
             <Panel className="mx-3 p-5">
-              <div className="flex items-center gap-3 mb-5">
+              <div className="flex items-center gap-3 mb-4">
                 <input value={amount} onChange={e => setAmount(e.target.value)}
-                       type="number" min="0.1" step="0.1" inputMode="decimal"
+                       type="number" min="1" step="1" inputMode="decimal"
                        className="flex-1 min-w-0 bg-transparent outline-none text-2xl font-bold"
                        style={{ color: T.text, fontFamily: DISPLAY,
                                 borderBottom: `1.5px solid ${T.line}` }} />
-                <span style={{ color: T.mute, fontFamily: DISPLAY }} className="text-xl font-bold">To</span>
+                <UnitPicker value={unit} onChange={setUnit} />
               </div>
 
+              <p style={{ color: T.faint, fontFamily: MONO }} className="text-xs mb-4">
+                = {humanSize(toBytes(amount, unit) || 0)}
+              </p>
+
               <div className="flex flex-wrap gap-2 mb-5">
-                {[1, 2, 3, 5, 10].map(v => (
-                  <button key={v} onClick={() => setAmount(String(v))}
+                {[["200", "Go"], ["500", "Go"], ["1", "To"], ["2", "To"], ["5", "To"], ["10", "To"]]
+                  .map(([v, u]) => (
+                  <button key={`${v}${u}`} onClick={() => { setAmount(v); setUnit(u); }}
                     style={{ border: `1.5px solid ${T.line}`, color: T.mute }}
                     className="text-xs font-semibold px-3 py-2 rounded-full">
-                    {v} To
+                    {v} {u}
                   </button>
                 ))}
               </div>
@@ -1699,11 +1738,11 @@ function AdminView({ onBack, t }) {
                 </button>
                 <button
                   onClick={() => {
-                    const v = parseFloat(amount);
-                    if (!(v > 0)) return;
+                    const bytes = toBytes(amount, unit);
+                    if (!(bytes > 0)) return;
                     const target = edit;
                     setEdit(null);
-                    run(() => adminSetQuota(target.id, Math.round(v * TO)));
+                    run(() => adminSetQuota(target.id, bytes));
                   }}
                   disabled={busy} style={{ background: T.violet }}
                   className="flex-1 py-3 rounded-full text-base font-semibold text-white">
@@ -1724,14 +1763,28 @@ function AdminView({ onBack, t }) {
         </p>
 
         <Panel className="mx-3 p-5">
-          <div className="flex items-center gap-3 mb-5">
+          <div className="flex items-center gap-3 mb-4">
             <input value={bulkTo} onChange={e => setBulkTo(e.target.value)}
-                   type="number" min="0.1" step="0.1" inputMode="decimal"
+                   type="number" min="1" step="1" inputMode="decimal"
                    className="flex-1 min-w-0 bg-transparent outline-none text-2xl font-bold"
                    style={{ color: T.text, fontFamily: DISPLAY,
                             borderBottom: `1.5px solid ${T.line}` }} />
-            <span style={{ color: T.mute, fontFamily: DISPLAY }} className="text-xl font-bold">To</span>
+            <UnitPicker value={bulkUnit} onChange={setBulkUnit} />
           </div>
+
+          <div className="flex flex-wrap gap-2 mb-4">
+            {[["200", "Go"], ["500", "Go"], ["1", "To"], ["2", "To"]].map(([v, u]) => (
+              <button key={`${v}${u}`} onClick={() => { setBulkTo(v); setBulkUnit(u); }}
+                style={{ border: `1.5px solid ${T.line}`, color: T.mute }}
+                className="text-xs font-semibold px-3 py-2 rounded-full">
+                {v} {u}
+              </button>
+            ))}
+          </div>
+
+          <p style={{ color: T.faint, fontFamily: MONO }} className="text-xs mb-5">
+            = {humanSize(toBytes(bulkTo, bulkUnit) || 0)}
+          </p>
 
           <div className="flex gap-3">
             <button onClick={() => setBulk(false)}
@@ -1741,11 +1794,12 @@ function AdminView({ onBack, t }) {
             </button>
             <button
               onClick={() => {
-                const v = parseFloat(bulkTo);
-                if (!(v > 0)) return;
+                const bytes = toBytes(bulkTo, bulkUnit);
+                if (!(bytes > 0)) return;
                 setBulk(false);
                 run(async () => {
-                  const n = await adminSetFreeQuota(TO, Math.round(v * TO));
+                  // le palier actuel est celui du plus grand groupe de comptes
+                  const n = await adminSetFreeQuota(freeQuota, bytes);
                   alert(t.adminBulkDone.replace("{n}", n));
                 });
               }}
@@ -1788,6 +1842,28 @@ const ariary = n => n.toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ");
 
 function StoreView({ onBack, user, t }) {
   const [picked, setPicked] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  /**
+   * Enregistrer la demande d'abord, ouvrir la messagerie ensuite.
+   *
+   * Un lien `mailto` quitte la page immediatement : une requete lancee au meme
+   * moment est interrompue avant d'aboutir, et la demande n'arrivait jamais
+   * jusqu'a l'administration.
+   */
+  async function send(plan) {
+    setSending(true);
+    try {
+      await createRequest(plan.to, plan.ar);
+      setSent(true);
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setSending(false);
+      window.location.href = mailto(plan);
+    }
+  }
 
   const mailto = plan => {
     const subject = `To-cloud — passage a ${plan.to} To`;
@@ -1814,6 +1890,13 @@ function StoreView({ onBack, user, t }) {
         </h2>
         <p style={{ color: T.mute }} className="text-sm leading-snug">{t.storeIntro}</p>
       </Panel>
+
+      {sent && (
+        <Panel accent={T.blue} className="mx-3 p-4 mb-4 flex items-center gap-3">
+          <Check size={20} color={T.blue} strokeWidth={2.6} className="shrink-0" />
+          <p style={{ color: T.text }} className="text-sm leading-snug">{t.requestSent}</p>
+        </Panel>
+      )}
 
       <div className="px-3 space-y-3">
         {PLANS.map((plan, i) => {
@@ -1845,13 +1928,15 @@ function StoreView({ onBack, user, t }) {
               </button>
 
               {on && (
-                <a href={mailto(plan)}
-                   onClick={() => createRequest(plan.to, plan.ar).catch(() => {})}
-                   style={{ background: T.violet, boxShadow: halo(T.violet) }}
-                   className="flex items-center justify-center gap-2.5 mt-2 mx-1 py-3.5 rounded-full">
-                  <Mail size={19} color="#FFFFFF" />
+                <button onClick={() => send(plan)} disabled={sending}
+                   style={{ background: T.violet, boxShadow: halo(T.violet),
+                            opacity: sending ? 0.6 : 1 }}
+                   className="w-full flex items-center justify-center gap-2.5 mt-2 py-3.5 rounded-full">
+                  {sending
+                    ? <Loader2 size={19} color="#FFFFFF" className="tc-spin" />
+                    : <Mail size={19} color="#FFFFFF" />}
                   <span className="text-base font-semibold text-white">{t.askPlan}</span>
-                </a>
+                </button>
               )}
             </Reveal>
           );
