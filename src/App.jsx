@@ -2091,7 +2091,7 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
           </button>
         </div>
       ) : (
-        <div className="flex items-center justify-between px-4 pt-4 pb-5">
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <button onClick={onBack} aria-label="Retour" className="p-1 -ml-1">
             <ArrowLeft size={26} color={T.text} />
           </button>
@@ -2104,39 +2104,30 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
 
       {!mode && (
         <>
-          <div className="flex items-center gap-4 px-5 mb-5">
-            <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={62} icon={30} />
-            <div className="min-w-0">
+          {/* En-tete compact : au-dela de deux ou trois lignes, la grille
+              d'images passe sous le pli et il faut defiler pour la voir. */}
+          <div className="flex items-center gap-3 px-4 mb-3">
+            <Tile c={cat.c} bg={cat.bg} Icon={cat.Icon} size={44} icon={21} />
+            <div className="min-w-0 flex-1">
               <h1 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.02em" }}
-                  className="text-2xl font-bold uppercase">{t.cats[cat.key]}</h1>
-              <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
+                  className="text-xl font-bold uppercase leading-tight">{t.cats[cat.key]}</h1>
+              <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-0.5">
                 {meta.total} {t.files}
               </p>
-              {items.length > 0 && (
-                <p style={{ color: T.faint }} className="text-xs mt-1">{t.holdToSelect}</p>
-              )}
             </div>
+
+            {items.length > 1 && (
+              <button onClick={() => setSort(s => s === "recent" ? "name" : s === "name" ? "size" : "recent")}
+                style={{ background: T.sunken, color: T.mute }}
+                className="text-xs font-semibold px-3 py-2 rounded-full shrink-0">
+                {sort === "recent" ? t.sortRecent : sort === "name" ? t.sortName : t.sortSize}
+              </button>
+            )}
           </div>
 
-          <div className="px-3 mb-4">
+          <div className="px-3 mb-3">
             <SearchBar value={q} onChange={setQ} accent={cat.c} t={t} />
           </div>
-
-          {items.length > 1 && (
-            <div className="flex items-center gap-2 px-4 mb-4 overflow-x-auto">
-              {[["recent", t.sortRecent], ["name", t.sortName], ["size", t.sortSize]].map(([k, l]) => (
-                <button key={k} onClick={() => setSort(k)}
-                  style={{
-                    background: sort === k ? cat.bg : "transparent",
-                    border: `1.5px solid ${sort === k ? cat.c : T.line}`,
-                    color: sort === k ? cat.c : T.mute,
-                  }}
-                  className="text-xs font-semibold px-3.5 py-2 rounded-full shrink-0">
-                  {l}
-                </button>
-              ))}
-            </div>
-          )}
         </>
       )}
 
@@ -2556,7 +2547,7 @@ function FolderView({ folder, onBack, onOpen, onPlay, t }) {
           </button>
         </div>
       ) : (
-        <div className="flex items-center justify-between px-4 pt-4 pb-5">
+        <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <button onClick={onBack} aria-label="Retour" className="p-1 -ml-1">
             <ArrowLeft size={26} color={T.text} />
           </button>
@@ -2569,17 +2560,17 @@ function FolderView({ folder, onBack, onOpen, onPlay, t }) {
 
       {!mode && (
         <>
-          <div className="flex items-center gap-4 px-5 mb-5">
-            <Tile c={T.violet} bg={T.violetBg} Icon={Folder} size={62} icon={30} />
-            <div className="min-w-0">
+          <div className="flex items-center gap-3 px-4 mb-3">
+            <Tile c={T.violet} bg={T.violetBg} Icon={Folder} size={44} icon={21} />
+            <div className="min-w-0 flex-1">
               <h1 style={{ color: T.text, fontFamily: DISPLAY, letterSpacing: "0.02em" }}
-                  className="text-2xl font-bold uppercase truncate">{folder.name}</h1>
-              <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
+                  className="text-xl font-bold uppercase truncate leading-tight">{folder.name}</h1>
+              <p style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-0.5">
                 {meta.total} {t.files}
               </p>
             </div>
           </div>
-          <div className="px-3 mb-4">
+          <div className="px-3 mb-3">
             <SearchBar value={q} onChange={setQ} t={t} />
           </div>
         </>

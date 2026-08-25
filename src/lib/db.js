@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { isNative, saveNative, shareSaved, openExternal, closeExternal, DEEP_LINK } from "./native.js";
+import { load, save, drop } from "./storage.js";
 
 const WORKER_URL = import.meta.env.VITE_API_URL;
 
