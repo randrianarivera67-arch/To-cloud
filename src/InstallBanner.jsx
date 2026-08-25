@@ -14,19 +14,19 @@ const COPY = {
   fr: {
     title: "Télécharger l'application To-Cloud",
     sub: "Envois plus rapides, ouverture hors connexion",
-    cta: "Installer", started: "Téléchargement lancé",
+    cta: "Télécharger", started: "Téléchargement lancé",
     already: "Déjà installée",
   },
   mg: {
     title: "Alaivo ny rindrambaiko To-Cloud",
     sub: "Haingana kokoa ny fandefasana, misokatra na tsy misy réseau",
-    cta: "Apetraho", started: "Nanomboka ny fakàna",
+    cta: "Alaivo", started: "Nanomboka ny fakàna",
     already: "Efa napetraka",
   },
   en: {
     title: "Get the To-Cloud app",
     sub: "Faster uploads, works offline",
-    cta: "Install", started: "Download started",
+    cta: "Download", started: "Download started",
     already: "Already installed",
   },
 };

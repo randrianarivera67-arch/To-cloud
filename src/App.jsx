@@ -1401,6 +1401,106 @@ const AddAccountView = ({ onBack, user, t }) => (
   </div>
 );
 
+/* ─────────── plans de stockage ─────────── */
+
+/**
+ * Grille tarifaire.
+ *
+ * Un palier par tera-octet, dix mille ariary d'ecart entre chacun : la regle
+ * est lisible d'un coup d'oeil, ce qui evite d'avoir a la justifier.
+ */
+const PLANS = [
+  { to: 2,  ar: 50000 },
+  { to: 3,  ar: 60000 },
+  { to: 4,  ar: 70000 },
+  { to: 5,  ar: 80000 },
+  { to: 6,  ar: 90000 },
+  { to: 7,  ar: 100000 },
+  { to: 8,  ar: 110000 },
+  { to: 9,  ar: 120000 },
+  { to: 10, ar: 130000 },
+];
+
+const ariary = n => n.toLocaleString("fr-FR").replace(/\u202f|\u00a0/g, " ");
+
+function StoreView({ onBack, user, t }) {
+  const [picked, setPicked] = useState(null);
+
+  const mailto = plan => {
+    const subject = `To-cloud — passage a ${plan.to} To`;
+    const body = [
+      `Bonjour,`,
+      ``,
+      `Je souhaite passer au forfait ${plan.to} To (${ariary(plan.ar)} Ar par mois).`,
+      ``,
+      `Compte : ${user?.email || ""}`,
+      ``,
+      `Merci de m'indiquer la marche a suivre pour le paiement.`,
+    ].join("\n");
+    return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  return (
+    <div className="pb-10">
+      <TopBar title={t.storePlans} onBack={onBack} />
+
+      <Panel accent={T.violet} className="mx-3 p-6 mb-5">
+        <Tile c={T.violet} bg={T.violetBg} Icon={Cloud} size={58} icon={28} />
+        <h2 style={{ color: T.text }} className="text-lg font-semibold mt-4 mb-1.5">
+          {t.storeTitle}
+        </h2>
+        <p style={{ color: T.mute }} className="text-sm leading-snug">{t.storeIntro}</p>
+      </Panel>
+
+      <div className="px-3 space-y-3">
+        {PLANS.map((plan, i) => {
+          const on = picked === plan.to;
+          return (
+            <Reveal key={plan.to} delay={i * 40}>
+              <button onClick={() => setPicked(on ? null : plan.to)}
+                style={{ background: T.card,
+                         border: `2px solid ${on ? T.violet : T.line}`,
+                         boxShadow: on ? halo(T.violet) : "none" }}
+                className="w-full flex items-center gap-4 p-4 rounded-3xl text-left">
+                <div style={{ background: on ? T.violetBg : T.sunken }}
+                     className="w-14 h-14 rounded-full flex items-center justify-center shrink-0">
+                  <span style={{ color: on ? T.violet : T.mute, fontFamily: DISPLAY }}
+                        className="text-lg font-bold">{plan.to}T</span>
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div style={{ color: T.text, fontFamily: DISPLAY }}
+                       className="text-xl font-bold">
+                    {ariary(plan.ar)} Ar
+                  </div>
+                  <div style={{ color: T.mute }} className="text-sm mt-0.5">
+                    {plan.to} To · {t.perMonth}
+                  </div>
+                </div>
+
+                <ChevronRight size={20} color={on ? T.violet : T.faint} />
+              </button>
+
+              {on && (
+                <a href={mailto(plan)}
+                   style={{ background: T.violet, boxShadow: halo(T.violet) }}
+                   className="flex items-center justify-center gap-2.5 mt-2 mx-1 py-3.5 rounded-full">
+                  <Mail size={19} color="#FFFFFF" />
+                  <span className="text-base font-semibold text-white">{t.askPlan}</span>
+                </a>
+              )}
+            </Reveal>
+          );
+        })}
+      </div>
+
+      <p style={{ color: T.faint }} className="text-xs px-6 pt-6 leading-relaxed">
+        {t.storeNote}
+      </p>
+    </div>
+  );
+}
+
 /* ─────────── category ─────────── */
 function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
   const [sel, setSel] = useState([]);
@@ -1745,16 +1845,22 @@ function CategoryView({ cat, onBack, onOpen, onPlay, t, lang }) {
 }
 
 /* ─────────── home ─────────── */
-function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, user, t }) {
+function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, onStore, user, t }) {
   const { meta, quota, loading } = useFiles(null, { limit: 1 });
 
   /* les compteurs viennent du serveur : inutile de tirer tous les fichiers
      pour savoir combien il y en a */
   const stats = meta.counts || {};
 
+  /* Au-dela du tera-octet, compter en giga-octets donne « 1024 Go » : exact,
+     mais personne ne lit un quota comme cela. */
   const totalGo = Math.max(1, Math.round(quota.quota / 1024 ** 3));
-  const usedGo = (quota.used / 1024 ** 3).toFixed(quota.used < 1024 ** 3 ? 2 : 1).replace(".", ",");
-  const freeGo = Math.max(0, totalGo - quota.used / 1024 ** 3).toFixed(0);
+  const totalLabel = totalGo >= 1024
+    ? `${(totalGo / 1024).toFixed(totalGo % 1024 ? 1 : 0).replace(".", ",")} To`
+    : `${totalGo} Go`;
+
+  const freeBytes = Math.max(0, quota.quota - quota.used);
+  const freeLabel = humanSize(freeBytes);
 
   const segs = [
     { c: T.rose,   k: "sary" },
@@ -1809,7 +1915,7 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, user, t }) {
                          className="text-5xl font-bold leading-none" />
               )}
               <span style={{ color: T.mute, fontFamily: DISPLAY }}
-                    className="text-3xl font-bold leading-none">/ {totalGo} Go</span>
+                    className="text-3xl font-bold leading-none">/ {totalLabel}</span>
             </div>
           </div>
           <span style={{ color: T.blue, background: T.blueBg, fontFamily: DISPLAY,
@@ -1832,7 +1938,7 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, user, t }) {
             </span>
           ))}
           <span style={{ color: T.faint, fontFamily: MONO, fontSize: 11 }} className="ml-auto">
-            {freeGo} Go {t.freeSpace}
+            {freeLabel} {t.freeSpace}
           </span>
         </div>
 
@@ -1843,6 +1949,17 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, user, t }) {
           <ChevronRight size={17} color={T.violet} className="ml-auto" />
         </div>
       </button>
+
+      {/* hors du bouton precedent : deux actions distinctes ne doivent pas
+          partager la meme zone tactile */}
+      <div className="px-5 pb-5">
+        <button onClick={onStore}
+          style={{ background: `linear-gradient(135deg, ${T.blue}, ${T.violet})` }}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-full active:opacity-80">
+          <Sparkles size={17} color="#FFFFFF" />
+          <span className="text-sm font-semibold text-white">{t.buyStorage}</span>
+        </button>
+      </div>
       </GlowFrame>
       </Reveal>
 
@@ -2375,6 +2492,7 @@ export default function ToCloud() {
                     onCat={c => { setCat(c); setView("cat"); }}
                     onSearch={() => setView("search")}
                     onFolders={() => setView("folders")}
+                    onStore={() => setView("store")}
                     onMenu={() => setDrawer(true)} onAccount={() => setAccount(true)} />}
         {view === "cat" && cat &&
           <CategoryView key={cat.key + bump} cat={cat}
@@ -2382,6 +2500,7 @@ export default function ToCloud() {
                         onOpen={(f, sibs) => { setGallery(sibs || []); setViewing(f); }}
                         onPlay={(queue, id) => setAudio({ queue, id })}
                         t={t} lang={lang} />}
+        {view === "store"      && <StoreView onBack={home} user={user} t={t} />}
         {view === "folders"    && <FoldersView onBack={home}
                                                onOpenFolder={f => { setFolder(f); setView("folder"); }}
                                                onOpenCat={c => { setCat(c); setFolder(null); setView("cat"); }}

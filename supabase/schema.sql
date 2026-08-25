@@ -12,7 +12,7 @@
 create table if not exists profiles (
   id       uuid primary key references auth.users on delete cascade,
   name     text,
-  quota    bigint not null default 536870912000,   -- 500 Go
+  quota    bigint not null default 1099511627776,  -- 1 To
   used     bigint not null default 0,
   created_at timestamptz not null default now()
 );

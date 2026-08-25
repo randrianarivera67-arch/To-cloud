@@ -189,7 +189,7 @@ export async function profile() {
     id: user.id,
     email: user.email,
     name,
-    quota: created?.quota ?? 536870912000,
+    quota: created?.quota ?? 1099511627776,
     used: created?.used ?? 0,
   };
 }

@@ -7,7 +7,7 @@ import { isNative } from "./lib/native.js";
 
 const COPY = {
   fr: {
-    tagline: "500 Go gratuits. Vos fichiers, partout.",
+    tagline: "1 To gratuit. Vos fichiers, partout.",
     login: "Se connecter", signup: "Créer un compte",
     google: "Continuer avec Google",
     or: "ou", name: "Nom complet", email: "Adresse e-mail", pass: "Mot de passe",
@@ -26,7 +26,7 @@ const COPY = {
     appTooOld: "Cette version de l'application ne gere pas encore la connexion Google. Installez la derniere, ou connectez-vous par e-mail.",
   },
   mg: {
-    tagline: "500 Go maimaim-poana. Ny rakitrao, na aiza na aiza.",
+    tagline: "1 To maimaim-poana. Ny rakitrao, na aiza na aiza.",
     login: "Hiditra", signup: "Hamorona kaonty",
     google: "Hanohy amin'ny Google",
     or: "na", name: "Anarana feno", email: "Adiresy mailaka", pass: "Teny miafina",
