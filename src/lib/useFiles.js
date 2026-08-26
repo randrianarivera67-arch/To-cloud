@@ -29,11 +29,18 @@ export function labelOf(ts) {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+/**
+ * Taille lisible.
+ *
+ * Le passage a l'unite superieure se fait des 1000, pas 1024 : sinon un espace
+ * libre de 1023,8 Go s'affiche « 1024 Go » juste sous la barre qui annonce un
+ * quota de 1 To, ce qui donne l'impression d'une incoherence.
+ */
 export function humanSize(bytes) {
   if (bytes < 1024) return `${bytes} o`;
   const units = ["Ko", "Mo", "Go", "To"];
   let v = bytes / 1024, i = 0;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  while (v >= 1000 && i < units.length - 1) { v /= 1024; i++; }
   return `${v.toFixed(v >= 100 ? 0 : 1).replace(".", ",")} ${units[i]}`;
 }
 

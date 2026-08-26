@@ -2417,10 +2417,7 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, onStore, user
 
   /* Au-dela du tera-octet, compter en giga-octets donne « 1024 Go » : exact,
      mais personne ne lit un quota comme cela. */
-  const totalGo = Math.max(1, Math.round(quota.quota / 1024 ** 3));
-  const totalLabel = totalGo >= 1024
-    ? `${(totalGo / 1024).toFixed(totalGo % 1024 ? 1 : 0).replace(".", ",")} To`
-    : `${totalGo} Go`;
+  const totalLabel = humanSize(quota.quota);
 
   const freeBytes = Math.max(0, quota.quota - quota.used);
   const freeLabel = humanSize(freeBytes);
