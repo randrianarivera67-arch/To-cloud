@@ -2,12 +2,12 @@ import React, { useState, useEffect } from "react";
 import { Mail, Lock, User as UserIcon, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
 import { T, DISPLAY, MONO, halo, Logo, GlowFrame } from "./theme.jsx";
 import { register as apiRegister, login as apiLogin,
-         loginWithGoogle, resetPassword } from "./lib/api.js";
+         loginWithGoogle, resetPassword, freeQuota } from "./lib/api.js";
 import { isNative } from "./lib/native.js";
 
 const COPY = {
   fr: {
-    tagline: "1 To gratuit. Vos fichiers, partout.",
+    tagline: "{q} gratuit. Vos fichiers, partout.",
     login: "Se connecter", signup: "Créer un compte",
     google: "Continuer avec Google",
     or: "ou", name: "Nom complet", email: "Adresse e-mail", pass: "Mot de passe",
@@ -26,7 +26,7 @@ const COPY = {
     appTooOld: "Cette version de l'application ne gere pas encore la connexion Google. Installez la derniere, ou connectez-vous par e-mail.",
   },
   mg: {
-    tagline: "1 To maimaim-poana. Ny rakitrao, na aiza na aiza.",
+    tagline: "{q} maimaim-poana. Ny rakitrao, na aiza na aiza.",
     login: "Hiditra", signup: "Hamorona kaonty",
     google: "Hanohy amin'ny Google",
     or: "na", name: "Anarana feno", email: "Adiresy mailaka", pass: "Teny miafina",
@@ -77,6 +77,21 @@ export default function Auth({ onDone, lang = "fr" }) {
   const [busy, setBusy] = useState(null);
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
+  const [offer, setOffer] = useState(null);
+
+  useEffect(() => {
+    let dead = false;
+    freeQuota()
+      .then(b => { if (!dead) setOffer(b); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, []);
+
+  const offerLabel = offer
+    ? (offer >= 1024 ** 4
+        ? `${(offer / 1024 ** 4).toFixed(offer % 1024 ** 4 ? 1 : 0).replace(".", ",")} To`
+        : `${Math.round(offer / 1024 ** 3)} Go`)
+    : "";
 
   const signup = mode === "signup";
 
@@ -156,7 +171,9 @@ export default function Auth({ onDone, lang = "fr" }) {
               className="text-3xl font-bold uppercase mt-4">
             To<span style={{ color: T.blue }}>·</span>cloud
           </h1>
-          <p style={{ color: T.mute }} className="text-sm mt-2 text-center">{c.tagline}</p>
+          <p style={{ color: T.mute }} className="text-sm mt-2 text-center">
+            {c.tagline.replace("{q}", offerLabel).replace(/^\s+/, "")}
+          </p>
         </div>
 
         <GlowFrame c={T.violet} className="mb-5" speed={7}>

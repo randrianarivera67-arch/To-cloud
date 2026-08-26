@@ -195,6 +195,24 @@ export async function profile() {
   };
 }
 
+/* ─────────── reglages publics ─────────── */
+
+const FALLBACK_FREE = 1099511627776;   // 1 To
+
+/** Offre gratuite annoncee. Lisible sans session, pour l'ecran de connexion. */
+export async function freeQuota() {
+  if (!CONFIGURED) return FALLBACK_FREE;
+  const { data } = await supabase
+    .from("settings").select("value").eq("key", "free_quota").maybeSingle();
+  return data ? Number(data.value) : FALLBACK_FREE;
+}
+
+export async function setFreeQuota(bytes) {
+  const { error } = await supabase
+    .from("settings").upsert({ key: "free_quota", value: String(bytes) });
+  if (error) throw new Error(error.message);
+}
+
 /* ─────────── administration ─────────── */
 
 /** Le role vient de la base : le client ne fait que le lire. */
@@ -231,6 +249,10 @@ export async function adminSetFreeQuota(fromBytes, toBytes) {
   const { data, error } = await supabase
     .from("profiles").update({ quota: toBytes }).eq("quota", fromBytes).select("id");
   if (error) throw new Error(error.message);
+
+  // sans cela, l'ecran de connexion continuerait d'annoncer l'ancienne offre
+  // et les comptes crees ensuite repartiraient de l'ancien quota
+  await setFreeQuota(toBytes);
   return data.length;
 }
 

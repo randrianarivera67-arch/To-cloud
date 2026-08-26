@@ -2403,6 +2403,13 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, onStore, user
   const freeBytes = Math.max(0, quota.quota - quota.used);
   const freeLabel = humanSize(freeBytes);
 
+  // arrondi a une decimale sous 10 % : « 0 % » sur un compte qui contient
+  // quelque chose donnerait l'impression d'un compteur casse
+  const pct = quota.quota ? (quota.used / quota.quota) * 100 : 0;
+  const usedPct = pct > 0 && pct < 10
+    ? pct.toFixed(pct < 1 ? 2 : 1).replace(".", ",")
+    : Math.round(pct);
+
   const segs = [
     { c: T.rose,   k: "sary" },
     { c: T.violet, k: "video" },
@@ -2464,10 +2471,14 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, onStore, user
                 className="font-bold px-2.5 py-1 rounded-full">{t.free}</span>
         </div>
 
-        <div style={{ background: T.sunken }} className="h-4 w-full flex gap-1 rounded-full overflow-hidden mb-3">
+        {/* Largeurs exactes. Un minimum impose faisait paraitre la barre bien
+            plus remplie qu'elle ne l'etait, surtout apres un agrandissement du
+            quota : les proportions ne correspondaient plus au chiffre affiche. */}
+        <div style={{ background: T.sunken }} className="h-4 w-full flex rounded-full overflow-hidden mb-3">
           {segs.map((s, i) => (
-            <div key={i} style={{ width: `${Math.max(s.v, s.v > 0 ? 2 : 0)}%`, background: s.c }}
-                 className="rounded-full" />
+            s.v > 0 ? (
+              <div key={i} style={{ width: `${Math.max(s.v, 0.6)}%`, background: s.c }} />
+            ) : null
           ))}
         </div>
 
@@ -2479,7 +2490,7 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, onStore, user
             </span>
           ))}
           <span style={{ color: T.faint, fontFamily: MONO, fontSize: 11 }} className="ml-auto">
-            {freeLabel} {t.freeSpace}
+            {usedPct} % · {freeLabel} {t.freeSpace}
           </span>
         </div>
 
