@@ -168,7 +168,7 @@ export async function profile() {
   if (!user) return null;
 
   const { data } = await supabase
-    .from("profiles").select("name, quota, used").eq("id", user.id).maybeSingle();
+    .from("profiles").select("name, quota, used, plan, role").eq("id", user.id).maybeSingle();
 
   if (data) return { id: user.id, email: user.email, ...data };
 
@@ -227,15 +227,22 @@ export async function isAdmin() {
 export async function adminUsers() {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, name, email, role, quota, used, created_at")
+    .select("id, name, email, role, plan, quota, used, created_at")
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
   return data;
 }
 
-/** Change le quota d'un compte. Les regles refusent l'appel a un non-admin. */
-export async function adminSetQuota(id, bytes) {
-  const { error } = await supabase.from("profiles").update({ quota: bytes }).eq("id", id);
+/**
+ * Change le quota d'un compte.
+ *
+ * Le compte passe en « payant » : un espace accorde a la main ne doit plus
+ * suivre les variations de l'offre gratuite, a la hausse comme a la baisse.
+ * Les regles de la base refusent l'appel a un non-administrateur.
+ */
+export async function adminSetQuota(id, bytes, plan = "paid") {
+  const { error } = await supabase
+    .from("profiles").update({ quota: bytes, plan }).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
@@ -246,8 +253,10 @@ export async function adminSetQuota(id, bytes) {
  * doit pas reprendre de la place a quelqu'un qui a paye.
  */
 export async function adminSetFreeQuota(fromBytes, toBytes) {
+  // le filtre porte sur le plan, pas sur le quota : un compte payant qui
+  // aurait par hasard le meme volume ne doit pas etre emporte
   const { data, error } = await supabase
-    .from("profiles").update({ quota: toBytes }).eq("quota", fromBytes).select("id");
+    .from("profiles").update({ quota: toBytes }).eq("plan", "free").select("id");
   if (error) throw new Error(error.message);
 
   // sans cela, l'ecran de connexion continuerait d'annoncer l'ancienne offre

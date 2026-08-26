@@ -96,6 +96,8 @@ const STR = {
     customTitle: "Un autre volume ?",
     customNote: "Indiquez l'espace dont vous avez besoin. La facturation se fait au tera-octet entier ; le prix s'affiche avant l'envoi.",
     customRange: "Entre 2 et 50 To.",
+    paid: "PAYANT",
+    adminBackToFree: "Remettre au palier gratuit",
     buyStorage: "Acheter plus de stockage",
     storePlans: "Forfaits", perMonth: "paiement unique",
     storeTitle: "Besoin de plus de place ?",
@@ -189,6 +191,8 @@ const STR = {
     customTitle: "Habe hafa?",
     customNote: "Soraty ny toerana ilainao. Isaky ny tera-octet feno ny fandoavana; aseho ny vidiny alohan'ny fandefasana.",
     customRange: "Eo anelanelan'ny 2 sy 50 To.",
+    paid: "VOALOA",
+    adminBackToFree: "Averina amin'ny maimaim-poana",
     buyStorage: "Hividy toerana fanampiny",
     storePlans: "Safidy", perMonth: "fandoavana indray mandeha",
     storeTitle: "Mila toerana bebe kokoa?",
@@ -282,6 +286,8 @@ const STR = {
     customTitle: "A different amount?",
     customNote: "Enter the space you need. Billing is per whole terabyte; the price shows before you send.",
     customRange: "Between 2 and 50 TB.",
+    paid: "PAID",
+    adminBackToFree: "Return to the free tier",
     buyStorage: "Get more storage",
     storePlans: "Plans", perMonth: "one-time payment",
     storeTitle: "Need more room?",
@@ -1560,14 +1566,12 @@ function AdminView({ onBack, t }) {
 
   /* Le palier gratuit n'est pas ecrit en dur : c'est le quota le plus repandu.
      Il suit donc les changements successifs sans qu'on ait a le renseigner. */
-  const freeQuota = useMemo(() => {
-    const tally = {};
-    users.forEach(u => { tally[u.quota] = (tally[u.quota] || 0) + 1; });
-    const top = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
-    return top ? Number(top[0]) : TO;
-  }, [users]);
-
-  const freeUsers = users.filter(u => Number(u.quota) === freeQuota).length;
+  /* L'offre gratuite se lit sur les comptes qui la suivent encore, pas sur le
+     quota le plus repandu : un lot de comptes payants identiques fausserait
+     le compte. */
+  const freeList = users.filter(u => u.plan !== "paid");
+  const freeUsers = freeList.length;
+  const freeQuota = freeList.length ? Number(freeList[0].quota) : TO;
 
   return (
     <div className="pb-10">
@@ -1696,6 +1700,11 @@ function AdminView({ onBack, t }) {
                     {u.role === "admin" && (
                       <span style={{ color: T.violet }} className="text-xs font-bold ml-2">admin</span>
                     )}
+                    {u.plan === "paid" && (
+                      <span style={{ color: T.gold }} className="text-xs font-bold ml-2">
+                        {t.paid.toLowerCase()}
+                      </span>
+                    )}
                   </div>
                   <div style={{ color: T.mute, fontFamily: MONO }} className="text-xs mt-1">
                     {humanSize(Number(u.used))} / {toLabel(Number(u.quota))}
@@ -1744,6 +1753,19 @@ function AdminView({ onBack, t }) {
                   </button>
                 ))}
               </div>
+
+              {edit.plan === "paid" && (
+                <button
+                  onClick={() => {
+                    const target = edit;
+                    setEdit(null);
+                    run(() => adminSetQuota(target.id, freeQuota, "free"));
+                  }}
+                  style={{ color: T.blue }}
+                  className="w-full text-sm font-semibold mb-4">
+                  {t.adminBackToFree}
+                </button>
+              )}
 
               <div className="flex gap-3">
                 <button onClick={() => setEdit(null)}
@@ -2405,6 +2427,15 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, onStore, user
 
   // arrondi a une decimale sous 10 % : « 0 % » sur un compte qui contient
   // quelque chose donnerait l'impression d'un compteur casse
+  /* « 0,17 / 1 To » se lit comme 0,17 To. L'unite du volume utilise doit etre
+     affichee, sinon les deux nombres semblent comparables alors qu'ils ne le
+     sont pas. */
+  const usedUnit = quota.used >= 1024 ** 4 ? "To"
+                 : quota.used >= 1024 ** 3 ? "Go"
+                 : quota.used >= 1024 ** 2 ? "Mo" : "Ko";
+  const usedDiv = { To: 1024 ** 4, Go: 1024 ** 3, Mo: 1024 ** 2, Ko: 1024 }[usedUnit];
+  const usedValue = quota.used / usedDiv;
+
   const pct = quota.quota ? (quota.used / quota.quota) * 100 : 0;
   const usedPct = pct > 0 && pct < 10
     ? pct.toFixed(pct < 1 ? 2 : 1).replace(".", ",")
@@ -2418,6 +2449,7 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, onStore, user
   ].map(s => ({ ...s, v: quota.quota ? (stats[s.k]?.bytes || 0) / quota.quota * 100 : 0 }));
 
   const initial = (user?.name || user?.email || "?").trim().charAt(0).toUpperCase();
+  const paid = user?.plan === "paid";
 
   return (
     <div className="pb-10">
@@ -2457,18 +2489,25 @@ function HomeView({ onCat, onMenu, onAccount, onSearch, onFolders, onStore, user
                 <span style={{ color: T.text, fontFamily: DISPLAY }}
                       className="text-5xl font-bold leading-none">—</span>
               ) : (
-                <Counter value={quota.used / 1024 ** 3}
-                         decimals={quota.used < 1024 ** 3 ? 2 : 1}
-                         style={{ color: T.text, fontFamily: DISPLAY }}
-                         className="text-5xl font-bold leading-none" />
+                <>
+                  <Counter value={usedValue}
+                           decimals={usedValue < 10 ? 2 : 1}
+                           style={{ color: T.text, fontFamily: DISPLAY }}
+                           className="text-5xl font-bold leading-none" />
+                  <span style={{ color: T.text, fontFamily: DISPLAY }}
+                        className="text-2xl font-bold leading-none">{usedUnit}</span>
+                </>
               )}
               <span style={{ color: T.mute, fontFamily: DISPLAY }}
-                    className="text-3xl font-bold leading-none">/ {totalLabel}</span>
+                    className="text-2xl font-bold leading-none">/ {totalLabel}</span>
             </div>
           </div>
-          <span style={{ color: T.blue, background: T.blueBg, fontFamily: DISPLAY,
+          <span style={{ color: paid ? T.gold : T.blue,
+                         background: paid ? T.goldBg : T.blueBg, fontFamily: DISPLAY,
                          letterSpacing: "0.12em", fontSize: 10 }}
-                className="font-bold px-2.5 py-1 rounded-full">{t.free}</span>
+                className="font-bold px-2.5 py-1 rounded-full">
+            {paid ? t.paid : t.free}
+          </span>
         </div>
 
         {/* Largeurs exactes. Un minimum impose faisait paraitre la barre bien
